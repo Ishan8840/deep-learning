@@ -37,8 +37,10 @@ class NeuralNetwork(nn.Module):
         self.linear_relu_stack = nn.Sequential(
             nn.Linear(28*28, 512),
             nn.GELU(),
+            nn.Dropout(0.2),
             nn.Linear(512, 512),
             nn.GELU(),
+            nn.Dropout(0.2),
             nn.Linear(512, 10),
         )
 
@@ -51,7 +53,6 @@ class NeuralNetwork(nn.Module):
 model = NeuralNetwork()
 learning_rate = 1e-3
 batch_size = 64
-epochs = 5
 
 
 def train_loop(dataloader, model, loss_fn, optimizer):
@@ -89,7 +90,7 @@ def test_loop(dataloader, model, loss_fn):
 
     # Evaluating the model with torch.no_grad() ensures that no gradients are computed during test mode
     # also serves to reduce unnecessary gradient computations and memory usage for tensors with requires_grad=True
-    with torch.no_grad():
+    with torch.inference_mode():
         for X, y in dataloader:
             pred = model(X)
             test_loss += loss_fn(pred, y).item()
@@ -102,8 +103,9 @@ def test_loop(dataloader, model, loss_fn):
 
 
 loss_fn = nn.CrossEntropyLoss()
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-2)
 epochs = 10
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
 train_losses, val_losses = [], []
 
@@ -111,6 +113,18 @@ for t in range(epochs):
     print(f"Epoch {t+1}\n-------------------------------")
     train_losses.append(train_loop(train_dataloader, model, loss_fn, optimizer))
     val_losses.append(test_loop(val_dataloader, model, loss_fn))
+    scheduler.step()
 
 test_loop(test_dataloader, model, loss_fn)
 print("Done!")
+
+
+import matplotlib.pyplot as plt
+
+plt.plot(train_losses, label="train loss")
+plt.plot(val_losses, label="val loss")
+plt.xlabel("epoch")
+plt.ylabel("loss")
+plt.legend()
+plt.title("Training vs validation loss")
+plt.show()
