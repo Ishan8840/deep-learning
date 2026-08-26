@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 
+# Single Head of Attention
 class Attention(nn.Module):
   def __init__(self, input_size, k_size, v_size):
     super().__init__()
@@ -20,6 +21,7 @@ class Attention(nn.Module):
     att = torch.softmax(Q @ K.T / torch.sqrt(torch.tensor(self.k_dim)), -1) @ V
 
     return att
+
 
 attention = Attention(4, 3, 5)
 
