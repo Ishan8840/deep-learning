@@ -25,9 +25,16 @@ class Attention(nn.Module):
 
     return att
 
-x = torch.randn(4, 2)
-attention = Attention(2, 3, 5)
 
-out = attention(x)
+class MultiHeadAttention(nn.Module):
+  def __init__(self, num_heads, input_size, k_size, v_size):
+    super().__init__()
 
-print(out)
+    self.W_o = nn.Parameter(torch.randn(input_size, k_size))
+    self.heads = [Attention(input_size, k_size, v_size) for _ in range(num_heads)]
+
+  def forward(self, x):
+    att = [head(x) for head in self.heads]
+    # do a full pass by hand with sample inputs and dims
+    # concat heads -> project W_o
+    
