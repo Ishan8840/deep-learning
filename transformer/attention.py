@@ -27,14 +27,16 @@ class Attention(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-  def __init__(self, num_heads, input_size, k_size, v_size):
+  def __init__(self, num_heads, input_size, k_size, v_size, model_size):
     super().__init__()
 
-    self.W_o = nn.Parameter(torch.randn(input_size, k_size))
-    self.heads = [Attention(input_size, k_size, v_size) for _ in range(num_heads)]
+    self.W_o = nn.Parameter(torch.randn(model_size, input_size))
+    self.heads = nn.ModuleList([Attention(input_size, k_size, v_size) for _ in range(num_heads)])
 
   def forward(self, x):
     att = [head(x) for head in self.heads]
-    # do a full pass by hand with sample inputs and dims
-    # concat heads -> project W_o
+    att = torch.cat(att, dim=2)
+    att = att @ self.W_o
+
+    return att
     
