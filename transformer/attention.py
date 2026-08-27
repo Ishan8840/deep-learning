@@ -13,14 +13,16 @@ class Attention(nn.Module):
     self.W_k = nn.Parameter(torch.randn(input_size, k_size)) # (2, 3)
     self.W_v = nn.Parameter(torch.randn(input_size, v_size)) # (2, 5)
 
-  def forward(self, x):
+  def forward(self, x, causal):
     Q = x @ self.W_q # (4, 2) (2, 3) -> (4, 3)
     K = x @ self.W_k # (4, 2) (2, 3) -> (4, 3)
     V = x @ self.W_v # (4, 2) (2, 5) -> (4, 5)
 
     att = Q @ torch.transpose(K, 1, 2)
-    mask = torch.tril(torch.ones(att.shape))
-    att = att.masked_fill(mask == 0, float('-inf'))
+    if causal:
+      mask = torch.tril(torch.ones(att.shape[1], att.shape[2]))
+      att = att.masked_fill(mask == 0, float('-inf'))
+    
     att = torch.softmax(att / torch.sqrt(torch.tensor(self.k_dim)), -1) @ V
 
     return att
