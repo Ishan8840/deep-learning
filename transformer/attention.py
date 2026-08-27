@@ -18,7 +18,7 @@ class Attention(nn.Module):
     K = x @ self.W_k # (4, 2) (2, 3) -> (4, 3)
     V = x @ self.W_v # (4, 2) (2, 5) -> (4, 5)
 
-    att = Q @ K.T
+    att = Q @ torch.transpose(K, 1, 2)
     mask = torch.tril(torch.ones(att.shape))
     att = att.masked_fill(mask == 0, float('-inf'))
     att = torch.softmax(att / torch.sqrt(torch.tensor(self.k_dim)), -1) @ V
@@ -39,4 +39,8 @@ class MultiHeadAttention(nn.Module):
     att = att @ self.W_o
 
     return att
-    
+
+x = torch.randn(8, 4, 64)
+mha = MultiHeadAttention(4, 64, 16, 16, 64)
+att = mha(x)
+print(att.shape)
