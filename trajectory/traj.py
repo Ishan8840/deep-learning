@@ -15,6 +15,15 @@ def create_windows(episodes, w_size):
     return torch.cat(ep_windows, dim=0)
 
 
+def create_batches(windows, batch_size):
+    batches = []
+
+    for i in range(0, windows.size(0), batch_size):
+        batches.append(windows[i:batch_size + i])
+
+    return batches
+
+
 
 episodes = [
     torch.randn(100, 14),
