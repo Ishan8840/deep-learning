@@ -13,17 +13,27 @@ class Attention(nn.Module):
         self.register_buffer('mask', torch.tril(torch.ones(256, 256)))
         self.scale = d_k ** -0.5
 
-    def forward(self, x):
+    def forward(self, x, cache=None, use_cache=False):
+        """cache is a (K, V) pair of everything seen so far, or None."""
         Q = x @ self.W_q
         K = x @ self.W_k
         V = x @ self.W_v
-        T = x.size(1)
+
+        if cache is not None:
+            past_K, past_V = cache
+            K = torch.cat([past_K, K], dim=1)
+            V = torch.cat([past_V, V], dim=1)
+
+        # Query i sits at absolute position off+i, so it may see keys 0..off+i.
+        # off is 0 while training (full sequence) and t while generating token t.
+        q_len, k_len = Q.size(1), K.size(1)
+        off = k_len - q_len
 
         wei = Q @ torch.transpose(K, 1, 2) * self.scale
-        masked_wei = wei.masked_fill(self.mask[:T, :T]==0, float('-inf'))
+        masked_wei = wei.masked_fill(self.mask[off:k_len, :k_len]==0, float('-inf'))
         scores = torch.softmax(masked_wei, dim=-1) @ V
 
-        return scores
+        return scores, ((K, V) if use_cache else None)
 
 
 class MHA(nn.Module):
@@ -33,10 +43,17 @@ class MHA(nn.Module):
         self.heads = nn.ModuleList([Attention(d_model, head_dim, head_dim) for _ in range(num_heads)])
         self.W_o   = nn.Parameter(torch.randn(num_heads * head_dim, d_model) * 0.02)
 
-    def forward(self, x):
-        scores = torch.cat([att(x) for att in self.heads], dim=-1)
+    def forward(self, x, cache=None, use_cache=False):
+        outs, new_cache = [], []
 
-        return scores @ self.W_o
+        for i, att in enumerate(self.heads):
+            out, kv = att(x, None if cache is None else cache[i], use_cache)
+            outs.append(out)
+            new_cache.append(kv)
+
+        scores = torch.cat(outs, dim=-1)
+
+        return scores @ self.W_o, (new_cache if use_cache else None)
 
 
 class FFN(nn.Module):
@@ -63,11 +80,13 @@ class TransformerBlock(nn.Module):
         self.ffn = FFN(d_model)
         self.ln2 = nn.LayerNorm(d_model)
 
-    def forward(self, x):
-        x = self.ln1(x + self.mha(x))
+    def forward(self, x, cache=None, use_cache=False):
+        att, new_cache = self.mha(x, cache, use_cache)
+
+        x = self.ln1(x + att)
         x = self.ln2(x + self.ffn(x))
 
-        return x
+        return x, new_cache
 
 
 class Transformer(nn.Module):
@@ -84,26 +103,61 @@ class Transformer(nn.Module):
         nn.init.normal_(self.tok_emb.weight, std=0.02)
         nn.init.normal_(self.pos_emb.weight, std=0.02)
 
-    def forward(self, idx):
+    @staticmethod
+    def cache_len(cache):
+        """How many tokens a cache already holds (0 if empty)."""
+        return 0 if cache is None else cache[0][0][0].size(1)
+
+    def forward(self, idx, cache=None, use_cache=False):
+        """Returns logits, or (logits, cache) when use_cache is set."""
         T = idx.size(1)
-        pos = torch.arange(T, device=idx.device)
+
+        # With a cache these tokens sit AFTER everything cached, so their
+        # positional embeddings start at past, not 0.
+        past = self.cache_len(cache)
+        pos = torch.arange(past, past + T, device=idx.device)
 
         x = self.tok_emb(idx) + self.pos_emb(pos)
 
-        for block in self.blocks:
-            x = block(x)
+        new_cache = []
+        for i, block in enumerate(self.blocks):
+            x, kv = block(x, None if cache is None else cache[i], use_cache)
+            new_cache.append(kv)
 
-        return x @ self.lm_head
+        logits = x @ self.lm_head
+
+        return (logits, new_cache) if use_cache else logits
 
     @torch.no_grad()
-    def generate(self, idx, max_new_t, temp=1.0):
+    def generate(self, idx, max_new_t, temp=1.0, use_cache=True):
+        if not use_cache:
+            for _ in range(max_new_t):
+                idx_cond = idx[:, -self.block_size:]      # 1. crop
+                logits = self(idx_cond)                   # 2. (B, T, vocab)
+                logits = logits[:, -1, :] / temp          # 3. last position only
+                probs  = torch.softmax(logits, dim=-1)    # 4. (B, vocab)
+                nxt    = torch.multinomial(probs, 1)      # 5. (B, 1)
+                idx    = torch.cat([idx, nxt], dim=1)     # 6. append
+            return idx
+
+        cache = None
+        step_in = idx[:, -self.block_size:]                # first pass: whole prompt
+
         for _ in range(max_new_t):
-            idx_cond = idx[:, -self.block_size:]          # 1. crop
-            logits = self(idx_cond)                  # 2. (B, T, vocab)
-            logits = logits[:, -1, :] / temp  # 3. last position only
-            probs  = torch.softmax(logits, dim=-1)   # 4. (B, vocab)
-            nxt    = torch.multinomial(probs, 1)     # 5. (B, 1)
-            idx    = torch.cat([idx, nxt], dim=1)    # 6. append
+            # The cache holds absolute positions, so it cannot slide. Once it
+            # fills block_size, drop it and rebuild from the cropped window.
+            if self.cache_len(cache) + step_in.size(1) > self.block_size:
+                cache = None
+                step_in = idx[:, -self.block_size:]
+
+            logits, cache = self(step_in, cache, use_cache=True)
+
+            probs = torch.softmax(logits[:, -1, :] / temp, dim=-1)
+            nxt   = torch.multinomial(probs, 1)
+
+            idx = torch.cat([idx, nxt], dim=1)
+            step_in = nxt                                  # only the new token
+
         return idx
 
 
