@@ -1,0 +1,54 @@
+# Downloaded datasets (at any depth)
+data/
+datasets/
+
+# Model weights and generated training output
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+checkpoints/
+reconstructions/
+runs/
+wandb/
+logs/
+*.log
+
+# Python environments, bytecode, and tool caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+.ipynb_checkpoints/
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+!.env.template
+.aws/
+.agents/
+.codex/
+.claude/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
