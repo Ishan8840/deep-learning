@@ -7,6 +7,7 @@ from torchvision import datasets
 from torchvision.transforms import v2
 from torchvision.utils import save_image
 from torch.utils.data import random_split
+import torch.nn.functional as F
 
 
 training_data = datasets.MNIST(
@@ -38,10 +39,12 @@ class AutoEncoder(nn.Module):
         super().__init__()
 
         self.encoder = nn.Sequential(
-            nn.Linear(784, 256),
-            nn.ReLU(),
-            nn.Linear(256, 32)
-        )
+                nn.Linear(784, 256),
+                nn.ReLU()
+            )
+        
+        self.mu = nn.Linear(256, 32)
+        self.logvar = nn.Linear(256, 32)
 
         self.decoder = nn.Sequential(
             nn.Linear(32, 256),
@@ -53,14 +56,43 @@ class AutoEncoder(nn.Module):
     def forward(self, x):
         x = torch.flatten(x, start_dim=1)
 
-        z = self.encoder(x)
+        h = self.encoder(x)
+
+        mu = self.mu(h)
+        logvar = self.logvar(h)
+
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+
+        z = mu + eps * std
+
         x_h = self.decoder(z)
 
-        return z, x_h
+        return x_h, mu, logvar
+
+
+def kl_loss(mu, logvar):
+    kl = 0.5 * torch.sum(
+            mu.pow(2) + logvar.exp() - 1 - logvar,
+            dim=1
+        )
+    
+    return kl.mean()
+
+
+def reconstruction_loss(x_h, x):
+    x = x.flatten(start_dim=1)
+
+    return F.binary_cross_entropy(
+        x_h, x, reduction="sum"
+    ) / x.size(0)
+
+def vae_loss(mu, logvar, x_h, x, beta=4):
+    return reconstruction_loss(x_h, x) + beta * kl_loss(mu, logvar)
+
 
 
 model = AutoEncoder()
-criterion = nn.MSELoss()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
@@ -84,8 +116,8 @@ for epoch in range(10):
         targets = images.flatten(start_dim=1)  # [batch_size, 784]
 
         optimizer.zero_grad()
-        _, reconstructed = model(images)
-        loss = criterion(reconstructed, targets)
+        x_h, mu, logvar = model(images)
+        loss = vae_loss(mu, logvar, x_h, targets)
         loss.backward()
         optimizer.step()
 
@@ -97,11 +129,11 @@ for epoch in range(10):
     with torch.no_grad():
         for images, _ in val_dataloader:
             images = images.to(device)
-            _, reconstructed = model(images)
-            loss = criterion(reconstructed, images.flatten(start_dim=1))
+            x_h, mu, logvar = model(images)
+            loss = vae_loss(mu, logvar, x_h, images.flatten(start_dim=1))
             val_loss += loss.item() * images.size(0)
 
-        _, preview_reconstructed = model(preview_images)
+        preview_reconstructed, _, _ = model(preview_images)
         random_generated = model.decoder(random_latents)
 
         comparison = torch.cat([
@@ -122,7 +154,7 @@ for epoch in range(10):
 
     print(
         f"Epoch {epoch + 1:02d} | "
-        f"train MSE: {train_loss:.6f} | val MSE: {val_loss:.6f}"
+        f"train loss: {train_loss:.6f} | val loss: {val_loss:.6f}"
     )
 
 torch.save(model.state_dict(), "autoencoder.pt")
