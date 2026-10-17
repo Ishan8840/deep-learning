@@ -7,7 +7,8 @@ alpha_bars = torch.cumprod(alphas, dim=0)
 
 
 def q_sample(x0, t):
-    eps = torch.randn_like(x0)
+    eps = torch.randn_like(x0) # 64, 1, 28, 28
 
-    return torch.sqrt(alpha_bars[t]) * x0 + torch.sqrt(1 - alpha_bars[t]) * eps
+    xt = torch.sqrt(alpha_bars[t]).view(-1, 1, 1, 1) * x0 + torch.sqrt(1 - alpha_bars[t]).view(-1, 1, 1, 1) * eps
 
+    return xt, eps
