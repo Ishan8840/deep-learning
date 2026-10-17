@@ -1,3 +1,5 @@
+import math
+
 import torch
 
 
@@ -12,3 +14,20 @@ def q_sample(x0, t):
     xt = torch.sqrt(alpha_bars[t]).view(-1, 1, 1, 1) * x0 + torch.sqrt(1 - alpha_bars[t]).view(-1, 1, 1, 1) * eps
 
     return xt, eps
+
+
+def timestep_embedding(t, dim=128):
+    half_dim = dim // 2 # 64
+
+    freqs = torch.exp(
+        torch.arange(half_dim, dtype=torch.float32) * -(math.log(10000.0) / half_dim)
+    ).to(t.device) # 64
+
+    args = t.float().unsqueeze(1) * freqs # t, 1 x 64 -> t, 64
+
+    f1 = torch.cos(args) # t, 64
+    f2 = torch.sin(args) # t, 64
+
+    e = torch.stack((f1, f2), dim=2).flatten(1) # t, 128
+
+    return e
