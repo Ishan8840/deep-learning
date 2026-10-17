@@ -1,6 +1,7 @@
 import math
 import torch.nn as nn
 import torch
+import torch.nn.functional as F
 
 
 betas = torch.linspace(0.0001, 0.02, steps=1000)
@@ -99,7 +100,7 @@ class Encoder(nn.Module):
 
         h1 = self.block1(x, t_emb)
         h2 = self.down(h1)
-        h3 = self.block2(h2)
+        h3 = self.block2(h2, t_emb)
 
         return h3, h1
 
@@ -139,3 +140,20 @@ class UNet(nn.Module):
         decoded = self.decoder(bottleneck, skip, t_emb)
 
         return decoded
+
+
+def train_step(model, optimizer, x0):
+
+    batch = x0.shape[0]
+    t = torch.randint(low=0, high=1000, size=(batch,), device=x0.device)
+
+    x_t, eps = q_sample(x0, t)
+    eps_pred = model(x_t, t)
+
+    loss = F.mse_loss(eps_pred, eps)
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    return loss.item()

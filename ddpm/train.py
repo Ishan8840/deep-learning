@@ -1,0 +1,97 @@
+"""Train the existing DDPM on MNIST. Training runs only when invoked directly."""
+
+import argparse
+import csv
+from pathlib import Path
+
+import matplotlib
+import torch
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+
+import ddpm
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+
+def main():
+    root = Path(__file__).resolve().parent
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--data-dir", type=Path, default=root.parent / "data")
+    parser.add_argument("--output-dir", type=Path, default=root / "outputs" / "training")
+    parser.add_argument("--download", action="store_true", help="Download MNIST if missing")
+    args = parser.parse_args()
+    if args.batch_size < 1 or args.epochs < 1 or not args.lr > 0:
+        parser.error("batch-size, epochs, and lr must be positive")
+
+    device = torch.device(args.device)
+    dataset = datasets.MNIST(
+        root=args.data_dir,
+        train=True,
+        download=args.download,
+        transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,)),
+        ]),
+    )
+    loader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        pin_memory=device.type == "cuda",
+    )
+
+    # q_sample reads these module-level tensors directly.
+    ddpm.betas = ddpm.betas.to(device)
+    ddpm.alphas = ddpm.alphas.to(device)
+    ddpm.alpha_bars = ddpm.alpha_bars.to(device)
+    model = ddpm.UNet().to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    losses = []
+
+    for epoch in range(1, args.epochs + 1):
+        model.train()
+        total_loss = 0.0
+        total_images = 0
+        for x0, _ in loader:
+            x0 = x0.to(device, non_blocking=device.type == "cuda")
+            loss = ddpm.train_step(model, optimizer, x0)
+            total_loss += loss * x0.size(0)
+            total_images += x0.size(0)
+
+        # Weight by batch size so the final, smaller batch counts correctly.
+        losses.append(total_loss / total_images)
+        print(f"Epoch {epoch}/{args.epochs}: loss={losses[-1]:.6f}", flush=True)
+        torch.save({
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "losses": losses,
+            "betas": ddpm.betas.detach().cpu(),
+            "config": {key: str(value) if isinstance(value, Path) else value
+                       for key, value in vars(args).items()},
+        }, args.output_dir / f"checkpoint_{epoch:03d}.pt")
+
+        with (args.output_dir / "losses.csv").open("w", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(["epoch", "training_loss"])
+            writer.writerows(enumerate(losses, start=1))
+
+        fig, ax = plt.subplots()
+        ax.plot(range(1, epoch + 1), losses, marker="o")
+        ax.set(xlabel="Epoch", ylabel="Average training loss (MSE)",
+               title="MNIST DDPM training loss")
+        ax.grid(alpha=0.2)
+        fig.tight_layout()
+        fig.savefig(args.output_dir / "training_loss.png", dpi=150)
+        plt.close(fig)
+
+
+if __name__ == "__main__":
+    main()
