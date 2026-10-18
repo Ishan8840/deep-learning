@@ -46,6 +46,12 @@ class ConvBlock(nn.Module):
 
         self.time = nn.Linear(time_dim, out_channels)
 
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(num_groups=8, num_channels=out_channels),
+            nn.SiLU()
+        )
+
         self.shortcut = (
             nn.Identity()
             if in_channels == out_channels
@@ -57,7 +63,7 @@ class ConvBlock(nn.Module):
         t_feat = self.time(t)
         t_feat = t_feat[:, :, None, None]
 
-        f = x_conv + t_feat
+        f = self.conv2(x_conv + t_feat)
 
         x_s = self.shortcut(x)
 
@@ -91,9 +97,11 @@ class Encoder(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.block1 = ConvBlock(1, 32)
-        self.down = Downsample(32)
-        self.block2 = ConvBlock(32, 64)
+        self.block1 = ConvBlock(1, 64)
+        self.down = Downsample(64)
+        self.block2 = ConvBlock(64, 128)
+        self.down2 = Downsample(128)
+        self.block3 = ConvBlock(128, 256)
 
 
     def forward(self, x, t_emb):
@@ -101,25 +109,28 @@ class Encoder(nn.Module):
         h1 = self.block1(x, t_emb)
         h2 = self.down(h1)
         h3 = self.block2(h2, t_emb)
+        h4 = self.block3(self.down2(h3), t_emb)
 
-        return h3, h1
+        return h4, (h1, h3)
 
 
 class Decoder(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.up = Upsample(64)
-        self.block = ConvBlock(96, 32)
-        self.out = nn.Conv2d(32, 1, kernel_size=1)
+        self.up1 = Upsample(256)
+        self.block1 = ConvBlock(384, 128)
+        self.up2 = Upsample(128)
+        self.block2 = ConvBlock(192, 64)
+        self.out = nn.Conv2d(64, 1, kernel_size=1)
 
 
-    def forward(self, h, skip, t_emb):
+    def forward(self, h, skips, t_emb):
 
-        up = self.up(h)
-        ccat = torch.cat((up, skip), dim=1)
-        h2 = self.block(ccat, t_emb)
-        out = self.out(h2)
+        skip28, skip14 = skips
+        h = self.block1(torch.cat((self.up1(h), skip14), dim=1), t_emb)
+        h = self.block2(torch.cat((self.up2(h), skip28), dim=1), t_emb)
+        out = self.out(h)
 
         return out
 
@@ -129,7 +140,7 @@ class UNet(nn.Module):
         super().__init__()
 
         self.encoder = Encoder()
-        self.bottleneck = ConvBlock(64, 64)
+        self.bottleneck = ConvBlock(256, 256)
         self.decoder = Decoder()
 
     def forward(self, x, t):

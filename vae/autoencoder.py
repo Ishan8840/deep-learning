@@ -14,16 +14,16 @@ import torch.nn.functional as F
 
 
 training_data = datasets.MNIST(
-    root="data",
+    root=Path(__file__).resolve().parent.parent / "data",
     train=True,
-    download=True,
+    download=False,
     transform=v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True)])
 )
 
 test_data = datasets.MNIST(
-    root="data",
+    root=Path(__file__).resolve().parent.parent / "data",
     train=False,
-    download=True,
+    download=False,
     transform=v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True)])
 )
 

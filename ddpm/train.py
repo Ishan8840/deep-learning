@@ -19,7 +19,8 @@ def main():
     root = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--epochs", type=int, default=20, help="Total epochs, including resumed epochs")
+    parser.add_argument("--resume", type=Path, help="Restore model, optimizer, and loss history")
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--data-dir", type=Path, default=root.parent / "data")
@@ -54,8 +55,22 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     losses = []
+    start_epoch = 1
+    if args.resume:
+        checkpoint = torch.load(args.resume, map_location="cpu", weights_only=True)
+        if not torch.equal(checkpoint["betas"], ddpm.betas.cpu()):
+            raise ValueError("Checkpoint schedule does not match ddpm.py")
+        start_epoch = checkpoint["epoch"] + 1
+        if start_epoch > args.epochs:
+            parser.error("epochs must exceed the checkpoint's completed epoch")
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        for group in optimizer.param_groups:
+            group["lr"] = args.lr
+        losses = list(checkpoint["losses"])
+        print(f"Resuming from epoch {start_epoch - 1} at lr={args.lr}", flush=True)
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         model.train()
         total_loss = 0.0
         total_images = 0
