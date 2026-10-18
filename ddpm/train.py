@@ -22,6 +22,11 @@ def main():
     parser.add_argument("--epochs", type=int, default=20, help="Total epochs, including resumed epochs")
     parser.add_argument("--resume", type=Path, help="Restore model, optimizer, and loss history")
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--timesteps", type=int, default=1000)
+    parser.add_argument("--beta-start", type=float, default=0.0001)
+    parser.add_argument("--beta-end", type=float, default=0.02)
+    parser.add_argument("--coarsen-from-1000", action="store_true",
+                        help="Combine equal groups of a 1000-step linear schedule")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--data-dir", type=Path, default=root.parent / "data")
     parser.add_argument("--output-dir", type=Path, default=root / "outputs" / "training")
@@ -29,6 +34,10 @@ def main():
     args = parser.parse_args()
     if args.batch_size < 1 or args.epochs < 1 or not args.lr > 0:
         parser.error("batch-size, epochs, and lr must be positive")
+    if args.timesteps < 2 or not 0 < args.beta_start <= args.beta_end < 1:
+        parser.error("timesteps must be >= 2 and 0 < beta-start <= beta-end < 1")
+    if args.coarsen_from_1000 and 1000 % args.timesteps != 0:
+        parser.error("coarsen-from-1000 requires timesteps to divide 1000")
 
     device = torch.device(args.device)
     dataset = datasets.MNIST(
@@ -48,9 +57,19 @@ def main():
     )
 
     # q_sample reads these module-level tensors directly.
+    # Build on CPU before moving to the device for reproducible checkpoint checks.
+    ddpm.betas = torch.linspace(args.beta_start, args.beta_end, args.timesteps)
+    if args.coarsen_from_1000:
+        reference_betas = torch.linspace(args.beta_start, args.beta_end, 1000)
+        # Products preserve alpha_bar at the end of each original group.
+        ddpm.betas = 1 - (1 - reference_betas).reshape(args.timesteps, -1).prod(dim=1)
+    ddpm.alphas = 1 - ddpm.betas
+    ddpm.alpha_bars = torch.cumprod(ddpm.alphas, dim=0)
     ddpm.betas = ddpm.betas.to(device)
     ddpm.alphas = ddpm.alphas.to(device)
     ddpm.alpha_bars = ddpm.alpha_bars.to(device)
+    print(f"Diffusion steps: {args.timesteps}; final alpha_bar: {ddpm.alpha_bars[-1].item():.8f}",
+          flush=True)
     model = ddpm.UNet().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     args.output_dir.mkdir(parents=True, exist_ok=True)

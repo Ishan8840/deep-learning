@@ -156,7 +156,7 @@ class UNet(nn.Module):
 def train_step(model, optimizer, x0):
 
     batch = x0.shape[0]
-    t = torch.randint(low=0, high=1000, size=(batch,), device=x0.device)
+    t = torch.randint(low=0, high=len(betas), size=(batch,), device=x0.device)
 
     x_t, eps = q_sample(x0, t)
     eps_pred = model(x_t, t)

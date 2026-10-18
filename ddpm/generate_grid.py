@@ -8,7 +8,7 @@ import torch
 from torchvision.utils import save_image
 
 import ddpm
-from sampling import p_sample_step
+from sampling import p_sample_step, load_schedule
 
 
 @torch.no_grad()
@@ -16,16 +16,12 @@ def main():
     root = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path,
-                        default=root / "outputs/wide_lr0001/training/checkpoint_020.pt")
-    parser.add_argument("--output-dir", type=Path, default=root / "outputs/wide_lr0001")
+                        default=root / "outputs/training/checkpoint_020.pt")
+    parser.add_argument("--output-dir", type=Path, default=root / "outputs")
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
-    if not torch.equal(checkpoint["betas"], ddpm.betas.cpu()):
-        raise ValueError("Checkpoint schedule does not match ddpm.py")
-    ddpm.betas = ddpm.betas.to(device)
-    ddpm.alphas = ddpm.alphas.to(device)
-    ddpm.alpha_bars = ddpm.alpha_bars.to(device)
+    load_schedule(checkpoint["betas"], device)
     model = ddpm.UNet().to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
