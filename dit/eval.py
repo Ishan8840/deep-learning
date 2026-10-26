@@ -1,6 +1,7 @@
 """Roll out a trained DiT or ACT in Gym PushT and save videos and metrics."""
 
 import argparse
+from collections import deque
 from contextlib import nullcontext
 import importlib.metadata
 import importlib.util
@@ -37,6 +38,7 @@ class DiffusionPolicy:
         self.checkpoint_step = checkpoint["step"]
         self.horizon = checkpoint["model_kwargs"]["horizon"]
         self.action_dim = checkpoint["model_kwargs"]["action_dim"]
+        self.n_obs_steps = checkpoint["model_kwargs"].get("n_obs_steps", 1)
         self.stats = {key: {name: value.to(self.device) for name, value in stats.items()}
                       for key, stats in checkpoint["normalization"].items()}
         self.fps = checkpoint["preprocessing"]["fps"]
@@ -55,6 +57,19 @@ class DiffusionPolicy:
         # Python integer timesteps avoid a GPU-to-CPU synchronization every step.
         self.timesteps = self.scheduler.timesteps.tolist()
         self.sampler = sampler
+        self.reset()
+
+    def reset(self):
+        self.observation_history = deque(maxlen=self.n_obs_steps)
+
+    def observe(self, observation):
+        """Record every control step, including steps within an action chunk."""
+        snapshot = {"agent_pos": np.asarray(observation["agent_pos"]).copy(),
+                    "pixels": np.asarray(observation["pixels"]).copy()}
+        if not self.observation_history:
+            self.observation_history.extend([snapshot] * self.n_obs_steps)
+        else:
+            self.observation_history.append(snapshot)
 
     def autocast(self):
         if self.amp == "none":
@@ -63,14 +78,21 @@ class DiffusionPolicy:
 
     @torch.inference_mode()
     def sample(self, observation, generator):
-        state = torch.as_tensor(observation["agent_pos"], dtype=torch.float32,
+        if (not self.observation_history
+                or not np.array_equal(self.observation_history[-1]["agent_pos"], observation["agent_pos"])
+                or not np.array_equal(self.observation_history[-1]["pixels"], observation["pixels"])):
+            self.observe(observation)
+        state = torch.as_tensor(np.stack([item["agent_pos"] for item in self.observation_history]), dtype=torch.float32,
                                 device=self.device).unsqueeze(0)
         state_stats = self.stats["observation.state"]
         state = 2 * (state - state_stats["min"]) / (state_stats["max"] - state_stats["min"]).clamp_min(1e-6) - 1
         pixels = observation["pixels"]
         if pixels.shape != (96, 96, 3) or pixels.dtype != np.uint8:
             raise ValueError("Expected 96x96 RGB uint8 observations, matching training")
-        image = torch.as_tensor(pixels.copy(), device=self.device).permute(2, 0, 1).unsqueeze(0).float()
+        image = torch.as_tensor(np.stack([item["pixels"] for item in self.observation_history]),
+                                device=self.device).permute(0, 3, 1, 2).unsqueeze(0).float()
+        if self.n_obs_steps == 1:
+            state, image = state[:, 0], image[:, 0]
         image = image.div(255).mul(2).sub(1)
         with self.autocast():
             state_emb, image_emb = self.model.encode_observation(state, image)
@@ -207,6 +229,7 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     config = {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()}
     config.update(checkpoint_step=policy.checkpoint_step,
+                  n_obs_steps=getattr(policy, "n_obs_steps", 1),
                   gym_pusht_version=importlib.metadata.version("gym-pusht"),
                   diffusers_version=importlib.metadata.version("diffusers"))
     (args.output_dir / "config.json").write_text(json.dumps(config, indent=2) + "\n")
@@ -224,6 +247,8 @@ def main():
                     policy.reset()
                 seed = args.seed + episode
                 observation, info = env.reset(seed=seed)
+                if hasattr(policy, "observe"):
+                    policy.observe(observation)
                 generator = torch.Generator(device=device).manual_seed(args.policy_seed + episode)
                 rewards, actions, positions, coverages, plans = [], [], [], [], []
                 success = False
@@ -240,6 +265,8 @@ def main():
                             actions.append(action)
                             positions.append(observation["agent_pos"].copy())
                             observation, reward, terminated, truncated, info = env.step(action)
+                            if hasattr(policy, "observe"):
+                                policy.observe(observation)
                             rewards.append(float(reward))
                             coverages.append(float(info["coverage"]))
                             success = success or bool(info["is_success"])
@@ -273,6 +300,7 @@ def main():
                    checkpoint_step=policy.checkpoint_step, sampler=args.sampler,
                    denoise_steps=args.denoise_steps, execute_steps=args.execute_steps,
                    policy=args.policy, temporal_ensemble=args.temporal_ensemble,
+                   n_obs_steps=getattr(policy, "n_obs_steps", 1),
                    episode_results=results)
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps({"event": "finished", **summary}), flush=True)

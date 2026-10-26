@@ -1,5 +1,6 @@
 """Train the conditional DiT on lerobot/pusht. Downloads begin only in main()."""
 
+# Runtime: Python 3.11, torch 2.7.1, torchvision 0.22.1, lerobot 0.4.3.
 import argparse
 from contextlib import nullcontext
 import json
@@ -11,13 +12,13 @@ import time
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from model import DiT, betas, noise_scheduler, q_sample
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description=__doc__)
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, epilog="For training without validation: train.py --until-plateau --help")
     parser.add_argument("--repo-id", default="lerobot/pusht")
     parser.add_argument("--revision", default="v3.0")
     parser.add_argument("--dataset-root", type=Path, default=None)
@@ -30,6 +31,7 @@ def parse_args():
     parser.add_argument("--cache-images", action="store_true",
                         help="Decode PushT video once into CPU RAM (use --workers 0)")
     parser.add_argument("--horizon", type=int, default=16)
+    parser.add_argument("--n-obs-steps", type=int, default=2)
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -46,8 +48,8 @@ def parse_args():
     parser.add_argument("--early-stop-min-delta", type=float, default=1e-4)
     parser.add_argument("--amp", choices=("none", "bf16", "fp16"), default="none")
     parser.add_argument("--seed", type=int, default=42)
-    args = parser.parse_args()
-    for key in ("steps", "batch_size", "horizon", "hidden_dim", "num_heads",
+    args = parser.parse_args(argv)
+    for key in ("steps", "batch_size", "horizon", "n_obs_steps", "hidden_dim", "num_heads",
                 "val_batches", "eval_every", "save_every", "log_every"):
         if getattr(args, key) < 1:
             parser.error(f"--{key.replace('_', '-')} must be positive")
@@ -147,8 +149,8 @@ def save_checkpoint(path, payload):
     temporary.replace(path)
 
 
-def main():
-    args = parse_args()
+def train_main(argv=None):
+    args = parse_args(argv)
     device = torch.device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable. Install CUDA PyTorch or pass --device cpu.")
@@ -170,6 +172,8 @@ def main():
         checkpoint = torch.load(args.resume, map_location="cpu", weights_only=False)
         if not torch.equal(checkpoint["betas"].cpu(), betas.cpu()):
             raise ValueError("Resume checkpoint has a different diffusion schedule; start a fresh run")
+        if args.n_obs_steps != checkpoint["model_kwargs"].get("n_obs_steps", 1):
+            raise ValueError("Resume requires the checkpoint's original --n-obs-steps")
         for key in ("repo_id", "revision", "seed", "horizon", "hidden_dim", "num_heads",
                     "batch_size", "lr", "weight_decay", "warmup_steps", "steps", "val_fraction", "amp", "grad_clip",
                     "early_stop_patience", "early_stop_min_delta"):
@@ -190,9 +194,14 @@ def main():
     val_episodes, train_episodes = sorted(episodes[:count]), sorted(episodes[count:])
     if checkpoint and (train_episodes != checkpoint["train_episodes"] or val_episodes != checkpoint["val_episodes"]):
         raise ValueError("Dataset episode split has changed since the checkpoint")
+    observation_offsets = [i / metadata.fps for i in range(1 - args.n_obs_steps, 1)]
+    delta_timestamps = {"action": [i / metadata.fps for i in range(args.horizon)]}
+    if args.n_obs_steps > 1:
+        delta_timestamps.update({"observation.state": observation_offsets,
+                                 "observation.image": observation_offsets})
     dataset_kwargs = dict(
         repo_id=args.repo_id, root=args.dataset_root, revision=args.revision,
-        delta_timestamps={"action": [i / metadata.fps for i in range(args.horizon)]},
+        delta_timestamps=delta_timestamps,
         video_backend="pyav",
     )
     train_dataset = LeRobotDataset(episodes=train_episodes, **dataset_kwargs)
@@ -200,17 +209,15 @@ def main():
     stats_cpu = checkpoint["normalization"] if checkpoint else fit_normalization(train_dataset)
     stats = {key: {name: value.to(device) for name, value in item.items()} for key, item in stats_cpu.items()}
     if args.cache_images:
-        from pusht_cache import CachedPushTDataset
-
         video_cache = {}
-        train_dataset = CachedPushTDataset(train_dataset, args.horizon, video_cache)
-        val_dataset = CachedPushTDataset(val_dataset, args.horizon, video_cache)
+        train_dataset = CachedPushTDataset(train_dataset, args.horizon, video_cache, args.n_obs_steps)
+        val_dataset = CachedPushTDataset(val_dataset, args.horizon, video_cache, args.n_obs_steps)
         del video_cache
     train_loader = make_loader(train_dataset, args, True, device)
     val_loader = make_loader(val_dataset, args, False, device)
 
     model_kwargs = dict(action_dim=2, hidden_dim=args.hidden_dim, horizon=args.horizon,
-                        state_dim=2, num_heads=args.num_heads)
+                        state_dim=2, num_heads=args.num_heads, n_obs_steps=args.n_obs_steps)
     model = DiT(**model_kwargs).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
@@ -303,7 +310,8 @@ def main():
                     scheduler=scheduler.state_dict(), scaler=scaler.state_dict(),
                     normalization=stats_cpu, train_episodes=train_episodes, val_episodes=val_episodes,
                     betas=betas.clone(), loader_rng=train_loader.generator.get_state(),
-                    preprocessing={"image_key": "observation.image", "image_normalization": "2*x-1", "fps": metadata.fps},
+                    preprocessing={"image_key": "observation.image", "image_normalization": "2*x-1", "fps": metadata.fps,
+                                   "n_obs_steps": args.n_obs_steps, "observation_offsets_s": observation_offsets},
                     rng={"python": random.getstate(), "numpy": np.random.get_state(),
                          "torch": torch.get_rng_state(),
                          "cuda": torch.cuda.get_rng_state_all() if device.type == "cuda" else None},
@@ -320,6 +328,279 @@ def main():
                    best_checkpoint=str(args.output_dir / "best.pt"))
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(f"Finished. Checkpoints: {args.output_dir.resolve()}", flush=True)
+
+
+
+class CachedPushTDataset(Dataset):
+    def __init__(self, source, horizon, video_cache, n_obs_steps=1):
+        import av
+
+        if n_obs_steps < 1:
+            raise ValueError("n_obs_steps must be positive")
+        self.n_obs_steps = n_obs_steps
+        def column(key):
+            return torch.stack(list(source.hf_dataset[key]))
+
+        self.actions = column("action").float()
+        self.states = column("observation.state").float()
+        episodes = column("episode_index").flatten().long()
+        timestamps = column("timestamp").flatten().double().numpy()
+        self.ends = torch.empty(len(episodes), dtype=torch.long)
+        self.starts = torch.empty(len(episodes), dtype=torch.long)
+        self.offsets = torch.arange(horizon)
+        self.observation_offsets = torch.arange(1 - n_obs_steps, 1)
+        images = None
+        for episode in episodes.unique().tolist():
+            rows = (episodes == episode).nonzero().flatten()
+            self.ends[rows] = rows[-1]
+            self.starts[rows] = rows[0]
+            path = source.root / source.meta.get_video_file_path(episode, "observation.image")
+            if path not in video_cache:
+                frames, times = [], []
+                with av.open(str(path)) as container:
+                    for frame in container.decode(video=0):
+                        frames.append(frame.to_ndarray(format="rgb24"))
+                        times.append(float(frame.pts * frame.time_base))
+                video_cache[path] = np.asarray(times), np.stack(frames)
+                print(f"Cached {len(frames)} RGB frames from {path.name}", flush=True)
+            times, frames = video_cache[path]
+            offset = source.meta.episodes[episode]["videos/observation.image/from_timestamp"]
+            targets = timestamps[rows.numpy()] + offset
+            right = np.searchsorted(times, targets).clip(0, len(times) - 1)
+            left = (right - 1).clip(0, len(times) - 1)
+            selected = np.where(abs(times[left] - targets) < abs(times[right] - targets), left, right)
+            if np.max(abs(times[selected] - targets)) > 0.005:
+                raise ValueError(f"Video timestamps do not align with episode {episode}")
+            selected_frames = torch.from_numpy(frames[selected]).permute(0, 3, 1, 2)
+            if images is None:
+                images = torch.empty((len(episodes), *selected_frames.shape[1:]), dtype=torch.uint8)
+            images[rows] = selected_frames
+        self.images = images
+
+    def __len__(self):
+        return len(self.actions)
+
+    def __getitem__(self, index):
+        indices = index + self.offsets
+        valid_indices = indices.clamp(max=self.ends[index].item())
+        observation_indices = (index + self.observation_offsets).clamp(min=self.starts[index].item())
+        state = self.states[observation_indices]
+        image = self.images[observation_indices].float().div(255)
+        if self.n_obs_steps == 1:
+            state, image = state[0], image[0]
+        return {
+            "action": self.actions[valid_indices],
+            "action_is_pad": indices > self.ends[index],
+            "observation.state": state,
+            "observation.image": image,
+        }
+
+
+class TrainingPlateau:
+    def __init__(self, patience=6, min_relative_improvement=0.01):
+        if patience < 1 or not 0 <= min_relative_improvement < 1:
+            raise ValueError("Invalid training plateau settings")
+        self.patience = patience
+        self.min_relative_improvement = min_relative_improvement
+        self.reference = float("inf")
+        self.bad_windows = 0
+        self.best = float("inf")
+
+    def update(self, value):
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("Training window loss must be finite and nonnegative")
+        self.best = min(self.best, value)
+        if value < self.reference * (1 - self.min_relative_improvement):
+            self.reference, self.bad_windows = value, 0
+        else:
+            self.bad_windows += 1
+        return self.bad_windows >= self.patience
+
+
+def parse_plateau_args(argv=None):
+    parser = argparse.ArgumentParser(description="Continue a checkpoint until training loss plateaus, without validation.")
+    parser.add_argument("--start-checkpoint", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--resume", type=Path)
+    parser.add_argument("--lr", type=float, default=None, help="Default: keep source checkpoint's final LR constant")
+    parser.add_argument("--window", type=int, default=500)
+    parser.add_argument("--patience", type=int, default=6)
+    parser.add_argument("--min-relative-improvement", type=float, default=0.01)
+    parser.add_argument("--max-additional-steps", type=int, default=50000,
+                        help="Safety ceiling; reaching it is reported separately from a plateau")
+    parser.add_argument("--log-every", type=int, default=100)
+    parser.add_argument("--device", default="cuda")
+    args = parser.parse_args(argv)
+    if min(args.window, args.patience, args.max_additional_steps, args.log_every) < 1:
+        parser.error("step counts must be positive")
+    if not 0 <= args.min_relative_improvement < 1 or (args.lr is not None and args.lr <= 0):
+        parser.error("Invalid relative improvement or learning rate")
+    return args
+
+
+def plateau_main(argv=None):
+    args = parse_plateau_args(argv)
+    device = torch.device(args.device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA is unavailable")
+    if not args.resume and (args.output_dir / "last.pt").exists():
+        raise FileExistsError("Choose a new output-dir or use --resume")
+    checkpoint = torch.load(args.resume or args.start_checkpoint, map_location="cpu", weights_only=False)
+    if not torch.equal(checkpoint["betas"].cpu(), betas.cpu()):
+        raise ValueError("Checkpoint and code diffusion schedules differ")
+    config = dict(checkpoint["config"])
+    amp = config["amp"]
+    if amp != "none" and device.type != "cuda":
+        raise ValueError("This checkpoint's AMP setting requires CUDA")
+    source_step = checkpoint.get("source_step", checkpoint["step"])
+    completed = checkpoint.get("additional_steps", 0)
+    learning_rate = args.lr if args.lr is not None else checkpoint["optimizer"]["param_groups"][0]["lr"]
+    if learning_rate <= 0:
+        raise ValueError("Source LR is zero; supply a positive --lr to continue learning")
+    plateau_config = dict(window=args.window, patience=args.patience,
+                          min_relative_improvement=args.min_relative_improvement,
+                          max_additional_steps=args.max_additional_steps, learning_rate=learning_rate)
+    if args.resume and checkpoint["plateau_config"] != plateau_config:
+        raise ValueError("Resume requires the original plateau settings and LR")
+    tracker = TrainingPlateau(args.patience, args.min_relative_improvement)
+    if args.resume:
+        tracker.__dict__.update(checkpoint["plateau_state"])
+    n_obs_steps = checkpoint["model_kwargs"].get("n_obs_steps", 1)
+    fps = checkpoint["preprocessing"]["fps"]
+    horizon = checkpoint["model_kwargs"]["horizon"]
+    stats_cpu = checkpoint["normalization"]
+    stats = {key: {name: value.to(device) for name, value in values.items()} for key, values in stats_cpu.items()}
+
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    delta = {"action": [i / fps for i in range(horizon)]}
+    if n_obs_steps > 1:
+        offsets = [i / fps for i in range(1 - n_obs_steps, 1)]
+        delta.update({"observation.state": offsets, "observation.image": offsets})
+    # Only load the original training episodes. No validation loader or loss.
+    source = LeRobotDataset(config["repo_id"], revision=config["revision"], root=config["dataset_root"],
+                            episodes=checkpoint["train_episodes"], delta_timestamps=delta, video_backend="pyav")
+    dataset = CachedPushTDataset(source, horizon, {}, n_obs_steps=n_obs_steps)
+    loader_args = argparse.Namespace(batch_size=config["batch_size"], workers=0, seed=config["seed"])
+    loader = make_loader(dataset, loader_args, True, device)
+    model = DiT(**checkpoint["model_kwargs"]).to(device)
+    model.load_state_dict(checkpoint["model"])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=config["weight_decay"])
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    for group in optimizer.param_groups:
+        group["lr"] = learning_rate
+    scaler = torch.amp.GradScaler("cuda", enabled=amp == "fp16")
+    if checkpoint.get("scaler"):
+        scaler.load_state_dict(checkpoint["scaler"])
+    random.setstate(checkpoint["rng"]["python"])
+    np.random.set_state(checkpoint["rng"]["numpy"])
+    torch.set_rng_state(checkpoint["rng"]["torch"])
+    if device.type == "cuda" and checkpoint["rng"]["cuda"] is not None:
+        torch.cuda.set_rng_state_all(checkpoint["rng"]["cuda"])
+    loader.generator.set_state(checkpoint["loader_rng"])
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    run_config = dict(config, mode="training_plateau", source_step=source_step,
+                      start_checkpoint=str(args.start_checkpoint), output_dir=str(args.output_dir),
+                      lr=learning_rate, lr_schedule="constant", validation_used_for_stopping=False,
+                      plateau_config=plateau_config)
+    (args.output_dir / "config.json").write_text(json.dumps(run_config, indent=2) + "\n")
+    print(json.dumps({"event": "start", "source_step": source_step, "additional_steps_completed": completed,
+                      "training_frames": len(dataset), "n_obs_steps": n_obs_steps,
+                      "validation_used": False, **plateau_config}), flush=True)
+    train(model, optimizer, scaler, loader, stats, stats_cpu, tracker, checkpoint,
+          config, run_config, plateau_config, source_step, completed, amp, device, args)
+
+
+def train(model, optimizer, scaler, loader, stats, stats_cpu, tracker, source,
+          config, run_config, plateau_config, source_step, completed, amp, device, args):
+    model.train()
+    iterator = iter(loader)
+    running = count = window_numerator = window_denominator = 0
+    last_window = None
+    stopped = False
+    best_step = source.get("best_train_step", source_step)
+    started = time.monotonic()
+    updates = completed
+    with (args.output_dir / "metrics.jsonl").open("a") as log:
+        for updates in range(completed + 1, args.max_additional_steps + 1):
+            try:
+                batch = next(iterator)
+            except StopIteration:
+                iterator = iter(loader)
+                batch = next(iterator)
+            optimizer.zero_grad(set_to_none=True)
+            loss, numerator, denominator = noise_loss(model, batch, stats, device, amp)
+            if not torch.isfinite(loss):
+                raise FloatingPointError("Non-finite continuation loss")
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), config["grad_clip"], error_if_nonfinite=True)
+            scaler.step(optimizer)
+            scaler.update()
+            running += loss.item()
+            count += 1
+            window_numerator += numerator.item()
+            window_denominator += denominator.item()
+            step = source_step + updates
+            record = dict(step=step, additional_steps=updates, lr=optimizer.param_groups[0]["lr"])
+            if updates % args.log_every == 0 or updates == args.max_additional_steps:
+                record.update(train_loss=running / count, elapsed_s=time.monotonic() - started)
+                running = count = 0
+            check = updates % args.window == 0 or updates == args.max_additional_steps
+            improved = False
+            if check:
+                last_window = window_numerator / max(window_denominator, 1)
+                improved = last_window < tracker.best
+                stopped = tracker.update(last_window)
+                if improved:
+                    best_step = step
+                record.update(train_window_loss=last_window, best_train_window_loss=tracker.best,
+                              plateau_reference=tracker.reference, bad_windows=tracker.bad_windows)
+                window_numerator = window_denominator = 0
+            if len(record) > 3:
+                print(json.dumps(record), flush=True)
+                log.write(json.dumps(record) + "\n")
+                log.flush()
+            if check:
+                payload = dict(
+                    step=step, source_step=source_step, additional_steps=updates,
+                    model=model.state_dict(), model_kwargs=source["model_kwargs"], optimizer=optimizer.state_dict(),
+                    scaler=scaler.state_dict(), config=run_config, normalization=stats_cpu,
+                    train_episodes=source["train_episodes"], val_episodes=source["val_episodes"],
+                    betas=betas.clone(), preprocessing=source["preprocessing"],
+                    train_window_loss=last_window, best_train_loss=tracker.best, best_train_step=best_step,
+                    plateau_config=plateau_config, plateau_state=dict(tracker.__dict__),
+                    validation_used_for_stopping=False, selection_metric="training_noise_mse_window",
+                    loader_rng=loader.generator.get_state(),
+                    rng={"python": random.getstate(), "numpy": np.random.get_state(), "torch": torch.get_rng_state(),
+                         "cuda": torch.cuda.get_rng_state_all() if device.type == "cuda" else None},
+                )
+                save_checkpoint(args.output_dir / "last.pt", payload)
+                if step % 1000 == 0:
+                    save_checkpoint(args.output_dir / f"step_{step:06d}.pt", payload)
+                if improved:
+                    save_checkpoint(args.output_dir / "best.pt", payload)
+            if stopped:
+                break
+    summary = dict(status="training_plateau" if stopped else "max_additional_steps",
+                   step=source_step + updates, source_step=source_step, additional_steps=updates,
+                   final_train_window_mse=last_window, best_train_window_mse=tracker.best,
+                   best_train_step=best_step, bad_windows=tracker.bad_windows,
+                   validation_used_for_stopping=False, plateau_config=plateau_config,
+                   evaluation_checkpoint=str(args.output_dir / "last.pt"))
+    (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    print(json.dumps({"event": "finished", **summary}), flush=True)
+
+
+
+def main(argv=None):
+    # Select continuation mode before parsing its independent CLI options.
+    mode = argparse.ArgumentParser(add_help=False)
+    mode.add_argument("--until-plateau", action="store_true")
+    args, remaining = mode.parse_known_args(argv)
+    if args.until_plateau:
+        plateau_main(remaining)
+    else:
+        train_main(remaining)
 
 
 if __name__ == "__main__":

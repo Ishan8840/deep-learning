@@ -1,2 +1,0 @@
--r requirements.txt
-gym-pusht==0.1.8

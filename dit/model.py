@@ -82,10 +82,14 @@ class SpatialSoftmax(nn.Module):
 
 
 class DiT(nn.Module):
-    def __init__(self, action_dim, hidden_dim, horizon, state_dim, num_heads=4):
+    def __init__(self, action_dim, hidden_dim, horizon, state_dim, num_heads=4, n_obs_steps=1):
         super().__init__()
+        if not isinstance(n_obs_steps, int) or isinstance(n_obs_steps, bool) or n_obs_steps < 1:
+            raise ValueError("n_obs_steps must be a positive integer")
         if hidden_dim % num_heads != 0:
             raise ValueError("hidden_dim must be divisible by num_heads")
+        self.n_obs_steps = n_obs_steps
+        self.state_dim = state_dim
 
         self.action_emb = nn.Linear(action_dim, hidden_dim)
         self.pos_emb = nn.Parameter(torch.randn(1, horizon, hidden_dim))
@@ -132,6 +136,11 @@ class DiT(nn.Module):
             nn.init.zeros_(layer.weight)
             nn.init.zeros_(layer.bias)
 
+        # Append history projections after the existing modules so their seeded
+        # initialization stays unchanged. Identity preserves old checkpoints.
+        self.state_history = nn.Linear(n_obs_steps * hidden_dim, hidden_dim) if n_obs_steps > 1 else nn.Identity()
+        self.image_history = nn.Linear(n_obs_steps * hidden_dim, hidden_dim) if n_obs_steps > 1 else nn.Identity()
+
 
     def forward(self, x, state, t, img):
         """Predict noise for actions [B, T, action_dim], conditioned on state and RGB images."""
@@ -140,7 +149,21 @@ class DiT(nn.Module):
 
     def encode_observation(self, state, img):
         """Cache these features once per action chunk during diffusion sampling."""
-        return self.state_emb(state), self.image_emb(img)
+        if self.n_obs_steps == 1:
+            if state.ndim == 3 and state.shape[1] == 1:
+                state = state[:, 0]
+            if img.ndim == 5 and img.shape[1] == 1:
+                img = img[:, 0]
+            return self.state_emb(state), self.image_emb(img)
+        if state.ndim != 3 or state.shape[1:] != (self.n_obs_steps, self.state_dim):
+            raise ValueError("state must have shape [batch, n_obs_steps, state_dim]")
+        if img.ndim != 5 or img.shape[:3] != (state.shape[0], self.n_obs_steps, 3):
+            raise ValueError("img must have shape [batch, n_obs_steps, 3, height, width]")
+        batch = state.shape[0]
+        state_features = self.state_emb(state).flatten(1)
+        image_features = self.image_emb(img.flatten(0, 1)).reshape(batch, -1)
+        # Concatenation preserves oldest-to-newest order instead of averaging.
+        return self.state_history(state_features), self.image_history(image_features)
 
     def forward_with_observation(self, x, t, state_emb, img_emb):
         """Denoise using cached observation features; parameters match forward()."""
