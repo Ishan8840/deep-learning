@@ -13,7 +13,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from model import DiT, betas, q_sample
+from model import DiT, betas, noise_scheduler, q_sample
 
 
 def parse_args():
@@ -164,9 +164,12 @@ def main():
 
     checkpoint = None
     config = {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()}
+    config.update(diffusion_steps=len(betas), beta_schedule=noise_scheduler.config.beta_schedule)
     if args.resume:
         # Load only your own trusted checkpoints; these include Python/NumPy RNG state.
         checkpoint = torch.load(args.resume, map_location="cpu", weights_only=False)
+        if not torch.equal(checkpoint["betas"].cpu(), betas.cpu()):
+            raise ValueError("Resume checkpoint has a different diffusion schedule; start a fresh run")
         for key in ("repo_id", "revision", "seed", "horizon", "hidden_dim", "num_heads",
                     "batch_size", "lr", "weight_decay", "warmup_steps", "steps", "val_fraction", "amp", "grad_clip",
                     "early_stop_patience", "early_stop_min_delta"):

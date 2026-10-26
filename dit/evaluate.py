@@ -27,7 +27,7 @@ from model import DiT
 
 
 class DiffusionPolicy:
-    def __init__(self, checkpoint_path, device="cuda", sampler="ddpm", denoise_steps=1000, amp="none"):
+    def __init__(self, checkpoint_path, device="cuda", sampler="ddim", denoise_steps=10, amp="none"):
         self.device = torch.device(device)
         self.amp = amp
         # Only load trusted checkpoints (training saves Python/NumPy RNG states).
@@ -49,7 +49,7 @@ class DiffusionPolicy:
         self.scheduler = scheduler_class(
             num_train_timesteps=len(schedule), trained_betas=schedule,
             prediction_type="epsilon", clip_sample=True, clip_sample_range=1.0,
-            timestep_spacing="linspace",
+            timestep_spacing="trailing" if sampler == "ddim" else "linspace",
         )
         self.scheduler.set_timesteps(denoise_steps)
         # Python integer timesteps avoid a GPU-to-CPU synchronization every step.
@@ -176,8 +176,8 @@ def parse_args():
     parser.add_argument("--policy-seed", type=int, default=10000)
     parser.add_argument("--max-steps", type=int, default=300)
     parser.add_argument("--execute-steps", type=int, default=8)
-    parser.add_argument("--sampler", choices=("ddpm", "ddim"), default="ddpm")
-    parser.add_argument("--denoise-steps", type=int, default=1000)
+    parser.add_argument("--sampler", choices=("ddpm", "ddim"), default="ddim")
+    parser.add_argument("--denoise-steps", type=int, default=10)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--amp", choices=("none", "bf16"), default="none")
     args = parser.parse_args()

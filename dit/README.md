@@ -79,7 +79,7 @@ padding; the default streaming loader remains available without this flag.
 - State and action per-coordinate min/max values are computed from training
   episodes only and map values to `[-1, 1]`. Validation values are not clipped.
 - Decoder images arrive as CHW floats in `[0, 1]` and are mapped to `[-1, 1]`.
-- The loss is masked noise-prediction MSE using `model.py`'s 1,000-step linear
+- The loss is masked noise-prediction MSE using `model.py`'s 100-step cosine
   diffusion schedule. The loop uses AdamW, warmup/cosine LR decay, and gradient
   clipping. It uses its own loss loop to support masking and optional AMP;
   the simple `model.py:train_step` helper remains available.
@@ -97,6 +97,20 @@ than that threshold. A shorter first run with more frequent checks is:
 python train.py --steps 10000 --amp bf16 --eval-every 500 --save-every 500 \
   --early-stop-patience 4 --early-stop-min-delta 0.0001
 ```
+
+For the cosine-100 experiment, start from random weights in a fresh directory:
+
+```bash
+python train.py --steps 10000 --amp bf16 --cache-images --workers 0 \
+  --eval-every 500 --save-every 500 --output-dir outputs/pusht-cosine100
+python evaluate.py --checkpoint outputs/pusht-cosine100/best.pt \
+  --sampler ddim --denoise-steps 10 --output-dir outputs/pusht-cosine100-eval
+```
+
+The diffusion schedule controls noise levels, independently of optimizer update
+count. Changing the trained schedule requires a fresh run; resume rejects saved
+betas that differ from `model.py`. Raw noise MSE from different schedules is not
+directly comparable. Inference always uses the selected checkpoint's saved betas.
 
 Early stopping responds to validation stagnation; it cannot guarantee that no
 overfitting occurs. The final stopping reason and best step are in `summary.json`.
@@ -154,13 +168,17 @@ and predicts epsilon through the reverse-diffusion schedule. Observation
 features are computed once per chunk, using the same model parameters as training.
 No retraining or dataset download is involved.
 
-The default sampler is DDPM with all 1,000 denoising steps. Each generated chunk
+The default sampler is DDIM with 10 denoising steps and `eta=0`. It uses the
+checkpoint's saved training betas; for the 100-step cosine checkpoint the selected
+timesteps are `99, 89, ..., 9`. Each generated chunk
 contains 16 actions; the first eight execute before replanning from a fresh
 observation. Actions are restored to pixel coordinates and clipped to the
 environment's action space. Evaluation uses FP32 by default; `--amp bf16` is
 optional. The environment runs headlessly with a 300-step limit at 10 Hz.
 
-For a faster approximate sampler, use `--sampler ddim --denoise-steps 100`.
+For full DDPM sampling of a 100-step checkpoint, use
+`--sampler ddpm --denoise-steps 100`. For a legacy 1,000-step checkpoint, use
+`--sampler ddpm --denoise-steps 1000` to reproduce its original evaluation.
 Sampler choice and number of executed actions can affect performance, so compare
 results with those settings recorded. The script saves `config.json`, one
 annotated MP4 and trajectory NPZ per episode, `episodes.jsonl`, and `summary.json`.

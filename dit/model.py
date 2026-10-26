@@ -3,10 +3,16 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 from torchvision.models import resnet18
+from diffusers import DDPMScheduler
 
 
+noise_scheduler = DDPMScheduler(
+    num_train_timesteps=100,
+    beta_schedule="squaredcos_cap_v2",
+    prediction_type="epsilon",
+)
 
-betas = torch.linspace(0.0001, 0.02, steps=1000)
+betas = noise_scheduler.betas
 alphas = 1 - betas
 alpha_bars = torch.cumprod(alphas, dim=0)
 
