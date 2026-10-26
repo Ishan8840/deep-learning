@@ -61,6 +61,11 @@ python train.py --steps 10 --warmup-steps 0 --batch-size 2 --workers 0 \
 That command really downloads data and trains ten steps; it is provided for you
 to run later. It has not been executed here.
 
+For this small dataset, `--cache-images --workers 0` decodes the video once into
+CPU RAM to avoid repeated random video seeks. Allow several GB of free RAM for
+decoding and caching. It preserves image timestamps, action chunks, and episode
+padding; the default streaming loader remains available without this flag.
+
 ## What gets trained
 
 - One image and one state at time `t` condition your existing single DiT block.
@@ -83,6 +88,18 @@ to run later. It has not been executed here.
 
 Validation uses fixed noise and timesteps, up to `--val-batches` batches per
 evaluation. It measures held-out denoising loss, not simulated task success.
+Early stopping defaults to four validation checks without an absolute loss
+improvement greater than `0.0001`; use `--early-stop-patience 0` to disable it.
+`best.pt` always tracks the lowest validation loss, including improvements smaller
+than that threshold. A shorter first run with more frequent checks is:
+
+```bash
+python train.py --steps 10000 --amp bf16 --eval-every 500 --save-every 500 \
+  --early-stop-patience 4 --early-stop-min-delta 0.0001
+```
+
+Early stopping responds to validation stagnation; it cannot guarantee that no
+overfitting occurs. The final stopping reason and best step are in `summary.json`.
 This is a baseline setup for your model; no training quality claims have been
 validated. Environment rollouts and reverse-diffusion action sampling are not
 part of this training script.
@@ -119,3 +136,72 @@ is noise, so a reverse-diffusion sampler is needed to generate actions.
 Convert normalized actions back to dataset coordinates with
 `(action + 1) * 0.5 * (max - min).clamp_min(1e-6) + min`, using the saved
 `checkpoint["normalization"]["action"]` tensors.
+
+## Gym PushT inference
+
+Install the environment and run the saved checkpoint:
+
+```bash
+python -m pip install -r requirements-eval.txt
+python evaluate.py --checkpoint outputs/pusht/best.pt \
+  --output-dir outputs/pusht-eval --episodes 10
+```
+
+`evaluate.py` uses `gym_pusht/PushT-v0` with `pixels_agent_pos` observations:
+96×96 RGB pixels plus the agent's 2D position. It loads the checkpoint's own
+normalization statistics and betas, starts an action chunk from Gaussian noise,
+and predicts epsilon through the reverse-diffusion schedule. Observation
+features are computed once per chunk, using the same model parameters as training.
+No retraining or dataset download is involved.
+
+The default sampler is DDPM with all 1,000 denoising steps. Each generated chunk
+contains 16 actions; the first eight execute before replanning from a fresh
+observation. Actions are restored to pixel coordinates and clipped to the
+environment's action space. Evaluation uses FP32 by default; `--amp bf16` is
+optional. The environment runs headlessly with a 300-step limit at 10 Hz.
+
+For a faster approximate sampler, use `--sampler ddim --denoise-steps 100`.
+Sampler choice and number of executed actions can affect performance, so compare
+results with those settings recorded. The script saves `config.json`, one
+annotated MP4 and trajectory NPZ per episode, `episodes.jsonl`, and `summary.json`.
+The summary includes success rate, mean maximum reward, and mean total reward.
+Environment success requires more than 95% block coverage of the goal; the
+reported reward is coverage divided by 0.95, clipped to `[0, 1]`.
+See the [Gym PushT environment](https://github.com/huggingface/gym-pusht)
+and [Diffusers DDPM scheduler](https://huggingface.co/docs/diffusers/v0.35.2/en/api/schedulers/ddpm).
+
+For the trained ACT checkpoint, the same evaluator supports ACT's own image
+preprocessing, zero-latent inference, and temporal ensembling:
+
+```bash
+python evaluate.py --policy act --act-dir ../act \
+  --checkpoint outputs/act-pusht-a100/best.pt --episodes 5 \
+  --execute-steps 1 --temporal-ensemble --output-dir outputs/act-pusht-eval
+```
+
+This predicts a chunk every control step and combines overlapping predictions
+using the ACT implementation's `TemporalEnsemble(decay=0.01)`. Its history resets
+between episodes. Unlike DiT, ACT images stay in `[0,1]` and include a camera
+axis. The evaluator verifies the ACT source hash against its checkpoint.
+Without `--temporal-ensemble`, `--execute-steps 8` runs ACT with the same chunk
+execution interval used for the earlier DiT evaluation. Control settings are
+recorded in the evaluation config and summary.
+
+To train the sibling `../act/act.py` model on the same episode split and
+normalization as a completed DiT run, use:
+
+```bash
+python train_act_pusht.py --reference-checkpoint outputs/pusht/best.pt \
+  --output-dir outputs/act-pusht
+```
+
+The reference checkpoint supplies dataset metadata, episode IDs, and training
+normalization statistics only. ACT starts from random weights. The adapter
+preserves ACT's 128-wide two-layer encoder/decoder, latent width 32, dropout 0.1,
+and KL weight 10. It trains 16-action chunks with images in `[0,1]`, and selects
+the best checkpoint using held-out action L1 with zero latent and no supplied
+demonstration actions. Defaults are BF16, batch size 64, a 10,000-step cap,
+validation every 500 steps, and four-check early stopping. Its checkpoints use
+the original ACT trainer's `model_state_dict` and `config` keys and add dataset
+normalization and resume state. Checkpoints, dataset caches, and rollout videos
+are ignored by Git.

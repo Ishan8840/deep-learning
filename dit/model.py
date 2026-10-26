@@ -129,15 +129,22 @@ class DiT(nn.Module):
 
     def forward(self, x, state, t, img):
         """Predict noise for actions [B, T, action_dim], conditioned on state and RGB images."""
+        state_emb, img_emb = self.encode_observation(state, img)
+        return self.forward_with_observation(x, t, state_emb, img_emb)
+
+    def encode_observation(self, state, img):
+        """Cache these features once per action chunk during diffusion sampling."""
+        return self.state_emb(state), self.image_emb(img)
+
+    def forward_with_observation(self, x, t, state_emb, img_emb):
+        """Denoise using cached observation features; parameters match forward()."""
         if x.ndim != 3 or not 1 <= x.shape[1] <= self.pos_emb.shape[1]:
             raise ValueError("x must have shape [batch, sequence_length, action_dim] within horizon")
         x = self.action_emb(x)
         x = x + self.pos_emb[:, :x.shape[1]]
 
-        state_emb = self.state_emb(state)
         t_emb = timestep_embedding(t, 128)
         t_emb = self.time_emb(t_emb.to(dtype=x.dtype))
-        img_emb = self.image_emb(img)
 
         c = state_emb + t_emb + img_emb
 

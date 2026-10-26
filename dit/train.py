@@ -27,6 +27,8 @@ def parse_args():
     parser.add_argument("--steps", type=int, default=100_000)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--cache-images", action="store_true",
+                        help="Decode PushT video once into CPU RAM (use --workers 0)")
     parser.add_argument("--horizon", type=int, default=16)
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--num-heads", type=int, default=4)
@@ -39,6 +41,9 @@ def parse_args():
     parser.add_argument("--eval-every", type=int, default=1000)
     parser.add_argument("--save-every", type=int, default=5000)
     parser.add_argument("--log-every", type=int, default=100)
+    parser.add_argument("--early-stop-patience", type=int, default=4,
+                        help="Stop after this many validations without meaningful improvement; 0 disables")
+    parser.add_argument("--early-stop-min-delta", type=float, default=1e-4)
     parser.add_argument("--amp", choices=("none", "bf16", "fp16"), default="none")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
@@ -52,6 +57,10 @@ def parse_args():
         parser.error("val-fraction must be in (0, 1); hidden-dim must divide evenly by num-heads")
     if args.lr <= 0 or args.weight_decay < 0 or args.grad_clip <= 0:
         parser.error("lr and grad-clip must be positive; weight-decay must be nonnegative")
+    if args.early_stop_patience < 0 or args.early_stop_min_delta < 0:
+        parser.error("early stopping patience and min-delta must be nonnegative")
+    if args.cache_images and args.workers != 0:
+        parser.error("--cache-images requires --workers 0")
     return args
 
 
@@ -159,7 +168,8 @@ def main():
         # Load only your own trusted checkpoints; these include Python/NumPy RNG state.
         checkpoint = torch.load(args.resume, map_location="cpu", weights_only=False)
         for key in ("repo_id", "revision", "seed", "horizon", "hidden_dim", "num_heads",
-                    "batch_size", "lr", "weight_decay", "warmup_steps", "steps", "val_fraction", "amp", "grad_clip"):
+                    "batch_size", "lr", "weight_decay", "warmup_steps", "steps", "val_fraction", "amp", "grad_clip",
+                    "early_stop_patience", "early_stop_min_delta"):
             if config[key] != checkpoint["config"][key]:
                 raise ValueError(f"Resume requires the original --{key.replace('_', '-')}")
 
@@ -170,7 +180,7 @@ def main():
     metadata = LeRobotDatasetMetadata(args.repo_id, root=args.dataset_root, revision=args.revision)
     if metadata.total_episodes < 2:
         raise ValueError("At least two episodes are required for a held-out split")
-    if metadata.features["action"]["shape"] != [2] or metadata.features["observation.state"]["shape"] != [2]:
+    if tuple(metadata.features["action"]["shape"]) != (2,) or tuple(metadata.features["observation.state"]["shape"]) != (2,):
         raise ValueError("This setup expects PushT's 2D state and 2D action")
     episodes = np.random.default_rng(args.seed).permutation(metadata.total_episodes).tolist()
     count = min(metadata.total_episodes - 1, max(1, round(len(episodes) * args.val_fraction)))
@@ -186,6 +196,13 @@ def main():
     val_dataset = LeRobotDataset(episodes=val_episodes, **dataset_kwargs)
     stats_cpu = checkpoint["normalization"] if checkpoint else fit_normalization(train_dataset)
     stats = {key: {name: value.to(device) for name, value in item.items()} for key, item in stats_cpu.items()}
+    if args.cache_images:
+        from pusht_cache import CachedPushTDataset
+
+        video_cache = {}
+        train_dataset = CachedPushTDataset(train_dataset, args.horizon, video_cache)
+        val_dataset = CachedPushTDataset(val_dataset, args.horizon, video_cache)
+        del video_cache
     train_loader = make_loader(train_dataset, args, True, device)
     val_loader = make_loader(val_dataset, args, False, device)
 
@@ -203,12 +220,16 @@ def main():
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_multiplier)
     scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")
     start_step, best_val = 0, float("inf")
+    best_step, bad_validations, early_stop_reference = 0, 0, float("inf")
     if checkpoint:
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         scheduler.load_state_dict(checkpoint["scheduler"])
         scaler.load_state_dict(checkpoint["scaler"])
         start_step, best_val = checkpoint["step"], checkpoint["best_val"]
+        best_step = checkpoint.get("best_step", start_step)
+        bad_validations = checkpoint.get("bad_validations", 0)
+        early_stop_reference = checkpoint.get("early_stop_reference", best_val)
         random.setstate(checkpoint["rng"]["python"])
         np.random.set_state(checkpoint["rng"]["numpy"])
         torch.set_rng_state(checkpoint["rng"]["torch"])
@@ -223,6 +244,7 @@ def main():
     model.train()
     iterator = iter(train_loader)
     running, running_count, started = 0.0, 0, time.monotonic()
+    stopped_early, step = False, start_step
     with (args.output_dir / "metrics.jsonl").open("a") as metrics:
         for step in range(start_step + 1, args.steps + 1):
             try:
@@ -257,13 +279,23 @@ def main():
             improved = val_loss is not None and val_loss < best_val
             if improved:
                 best_val = val_loss
+                best_step = step
+            if val_loss is not None:
+                if val_loss < early_stop_reference - args.early_stop_min_delta:
+                    early_stop_reference, bad_validations = val_loss, 0
+                else:
+                    bad_validations += 1
+                record.update(best_val=best_val, best_step=best_step, bad_validations=bad_validations)
+                stopped_early = args.early_stop_patience > 0 and bad_validations >= args.early_stop_patience
             if len(record) > 2:
                 print(json.dumps(record), flush=True)
                 metrics.write(json.dumps(record) + "\n")
                 metrics.flush()
-            if improved or step % args.save_every == 0 or step == args.steps:
+            if improved or step % args.save_every == 0 or step == args.steps or stopped_early:
                 payload = dict(
                     step=step, best_val=best_val, config=config, model_kwargs=model_kwargs,
+                    best_step=best_step, bad_validations=bad_validations,
+                    early_stop_reference=early_stop_reference,
                     model=model.state_dict(), optimizer=optimizer.state_dict(),
                     scheduler=scheduler.state_dict(), scaler=scaler.state_dict(),
                     normalization=stats_cpu, train_episodes=train_episodes, val_episodes=val_episodes,
@@ -276,6 +308,14 @@ def main():
                 save_checkpoint(args.output_dir / "last.pt", payload)
                 if improved:
                     save_checkpoint(args.output_dir / "best.pt", payload)
+            if stopped_early:
+                print(f"Early stopping: {bad_validations} validations without improvement "
+                      f"> {args.early_stop_min_delta}. Best validation {best_val:.6f} at step {best_step}.", flush=True)
+                break
+    summary = dict(status="early_stopped" if stopped_early else "completed",
+                   step=step, best_step=best_step, best_val=best_val,
+                   best_checkpoint=str(args.output_dir / "best.pt"))
+    (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(f"Finished. Checkpoints: {args.output_dir.resolve()}", flush=True)
 
 
