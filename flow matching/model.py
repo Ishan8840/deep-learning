@@ -1,3 +1,5 @@
+"""Visual flow matching for action sequences."""
+
 import math
 
 import torch
@@ -6,7 +8,6 @@ from torch.nn import functional as F
 
 
 def positions(length, width, device, dtype):
-    # Sinusoidal positions
     step = torch.arange(length, device=device, dtype=dtype)[:, None]
     frequency = torch.exp(
         torch.arange(0, width, 2, device=device, dtype=dtype)
@@ -17,42 +18,52 @@ def positions(length, width, device, dtype):
     result[:, 1::2] = (step * frequency).cos()
     return result
 
+
 def timestep_embedding(t, dim=128):
     half = dim // 2
-
-    freqs = torch.exp(
+    frequencies = torch.exp(
         -math.log(10000)
         * torch.arange(half, device=t.device, dtype=t.dtype)
         / half
     )
 
-    args = t[:, None] * freqs[None, :]
-
-    return torch.cat([
-        torch.sin(args),
-        torch.cos(args)
-    ], dim=-1)
+    angles = t[:, None] * frequencies[None, :]
+    return torch.cat([angles.sin(), angles.cos()], dim=-1)
 
 
 def flow_sample(x1, t):
     x0 = torch.randn_like(x1)
+    time = t[:, None, None]
+    return (1 - time) * x0 + time * x1, x1 - x0
 
-    t_view = t[:, None, None]
 
-    x_t = (1 - t_view) * x0 + t_view * x1
-    target_velocity = x1 - x0
+def make_backbone(name, hidden_dim):
+    if name == "cnn":
+        return nn.Sequential(
+            nn.Conv2d(3, 32, 5, stride=2, padding=2), nn.ReLU(),
+            nn.Conv2d(32, 64, 3, stride=2, padding=1), nn.ReLU(),
+            nn.Conv2d(64, hidden_dim, 3, stride=2, padding=1), nn.ReLU(),
+        )
+    if name == "resnet18":
+        from torchvision.models import resnet18
 
-    return x_t, target_velocity
+        network = resnet18(weights=None, norm_layer=lambda width: nn.GroupNorm(32, width))
+        return nn.Sequential(
+            *list(network.children())[:-2],
+            nn.Conv2d(512, hidden_dim, kernel_size=1),
+        )
+    raise ValueError("backbone must be cnn or resnet18")
 
 
 class FM(nn.Module):
     def __init__(self, state_dim=14, action_dim=14, chunk_size=50,
                  num_cameras=1, hidden_dim=128,
-                 nheads=4, encoder_layers=2, decoder_layers=2, dropout=0.1):
+                 nheads=4, encoder_layers=2, decoder_layers=2, dropout=0.1,
+                 backbone="cnn", obs_steps=1):
         super().__init__()
 
         dimensions = (state_dim, action_dim, chunk_size, num_cameras, hidden_dim,
-                        nheads, encoder_layers, decoder_layers)
+                        nheads, encoder_layers, decoder_layers, obs_steps)
 
         if any(not isinstance(x, int) or isinstance(x, bool) or x < 1 for x in dimensions):
             raise ValueError("Model dimensions must be positive integers")
@@ -64,15 +75,10 @@ class FM(nn.Module):
         self.action_dim = action_dim
         self.chunk_size = chunk_size
         self.num_cameras = num_cameras
+        self.obs_steps = obs_steps
+        self.backbone_name = backbone
 
-        # Image backbone: reduce each camera image to a grid of features.
-        self.backbone = nn.Sequential(
-            nn.Conv2d(3, 32, 5, stride=2, padding=2), nn.ReLU(),
-            nn.Conv2d(32, 64, 3, stride=2, padding=1), nn.ReLU(),
-            nn.Conv2d(64, hidden_dim, 3, stride=2, padding=1), nn.ReLU(),
-        )
-
-        # Project joints/actions into the same token dimension as image features.
+        self.backbone = make_backbone(backbone, hidden_dim)
         self.joint_embed = nn.Linear(state_dim, hidden_dim)
         self.action_embed = nn.Linear(action_dim, hidden_dim)
         self.camera_embed = nn.Parameter(torch.randn(num_cameras, hidden_dim) * 0.02)
@@ -82,19 +88,16 @@ class FM(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
         )
 
-        # Each encoder layer contains self-attention followed by a feedforward
-        def make_encoder():
-            layer = nn.TransformerEncoderLayer(
-                d_model=hidden_dim,
-                nhead=nheads,
-                dim_feedforward=hidden_dim * 4,
-                dropout=dropout,
-                batch_first=True,
-            )
-            return nn.TransformerEncoder(layer, encoder_layers, enable_nested_tensor=False)
-
-        # Observation encoder: let all context and image tokens attend together.
-        self.encoder = make_encoder()
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=nheads,
+            dim_feedforward=hidden_dim * 4,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(
+            encoder_layer, encoder_layers, enable_nested_tensor=False,
+        )
 
         layer = nn.TransformerDecoderLayer(
             d_model=hidden_dim,
@@ -107,7 +110,24 @@ class FM(nn.Module):
         self.action_head = nn.Linear(hidden_dim, action_dim)
 
     def forward(self, qpos, images, x_t, t):
+        memory = self.encode_observations(qpos, images)
+        return self.predict_velocity(memory, x_t, t)
+
+    def encode_observations(self, qpos, images):
         batch_size = qpos.shape[0]
+
+        if self.obs_steps > 1:
+            if qpos.shape != (batch_size, self.obs_steps, self.state_dim):
+                raise ValueError("qpos must have shape (B, obs_steps, state_dim)")
+            if images.ndim != 6 or images.shape[:4] != (batch_size, self.obs_steps, self.num_cameras, 3):
+                raise ValueError("images must have shape (B, obs_steps, cameras, 3, H, W)")
+            joint_tokens = self.joint_embed(qpos).unsqueeze(2)
+            visual_tokens = self._encode_images(images.flatten(0, 1))
+            visual_tokens = visual_tokens.reshape(batch_size, self.obs_steps, -1, joint_tokens.shape[-1])
+            tokens = torch.cat([joint_tokens, visual_tokens], dim=2)
+            temporal = positions(self.obs_steps, tokens.shape[-1], tokens.device, tokens.dtype)
+            tokens = tokens + temporal[None, :, None, :]
+            return self.encoder(tokens.flatten(1, 2))
 
         if qpos.shape != (batch_size, self.state_dim):
             raise ValueError("qpos must have shape (B, state_dim)")
@@ -117,33 +137,30 @@ class FM(nn.Module):
 
         joint_token = self.joint_embed(qpos)
         visual_tokens = self._encode_images(images)
-        t_emb = timestep_embedding(t, 128)
-        t_emb = self.time_embed(t_emb)
 
-        observation_tokens = torch.cat(
-            [joint_token.unsqueeze(1), visual_tokens],
-            dim=1
-        )
+        observation_tokens = torch.cat([joint_token.unsqueeze(1), visual_tokens], dim=1)
+        return self.encoder(observation_tokens)
 
-        memory = self.encoder(observation_tokens)
+    def predict_velocity(self, memory, x_t, t):
+        if x_t.shape != (memory.shape[0], self.chunk_size, self.action_dim):
+            raise ValueError("x_t must have shape (B, chunk_size, action_dim)")
+        if t.shape != (memory.shape[0],):
+            raise ValueError("t must have shape (B,)")
+        time_tokens = self.time_embed(timestep_embedding(t, 128)).unsqueeze(1)
         action_tokens = self.action_embed(x_t)
-        action_tokens = action_tokens + positions(self.chunk_size, action_tokens.shape[-1], action_tokens.device, action_tokens.dtype).unsqueeze(0) + t_emb.unsqueeze(1)
-
-        decoded_tokens = self.decoder(action_tokens, memory)
-        velocity = self.action_head(decoded_tokens)
-
-        return velocity
-
+        action_positions = positions(
+            self.chunk_size, action_tokens.shape[-1], action_tokens.device, action_tokens.dtype,
+        ).unsqueeze(0)
+        action_tokens = action_tokens + action_positions + time_tokens
+        return self.action_head(self.decoder(action_tokens, memory))
 
     def _encode_images(self, images):
         batch_size = images.shape[0]
 
-        # Run the same CNN on every camera by combining batch and camera axes
         camera_images = images.flatten(0, 1)
         features = self.backbone(camera_images)
         _, hidden_dim, grid_height, grid_width = features.shape
 
-        # Half the positional channels encode row, half encode column.
         row_positions = positions(grid_height, hidden_dim // 2, features.device, features.dtype)
         column_positions = positions(grid_width, hidden_dim // 2, features.device, features.dtype)
 
@@ -153,22 +170,30 @@ class FM(nn.Module):
         spatial_positions = torch.cat((row_grid, column_grid), dim=-1)
         spatial_positions = spatial_positions.reshape(grid_height * grid_width, hidden_dim)
 
-        # (B * cameras, D, H, W) -> (B, cameras, H * W, D).
         visual_tokens = features.flatten(2).transpose(1, 2)
         visual_tokens = visual_tokens.reshape(
             batch_size, self.num_cameras, grid_height * grid_width, hidden_dim,
         )
-        # Identify both where a feature is and which camera it came from.
         camera_positions = self.camera_embed[None, :, None]
         visual_tokens = visual_tokens + spatial_positions + camera_positions
 
         return visual_tokens.flatten(1, 2)
 
-    def fm_loss(self, model, x1, qpos, images):
-        t = torch.rand(x1.shape[0], device=x1.device)
-        
+    def fm_loss(self, x1, qpos, images, is_pad=None):
+        t = torch.rand(x1.shape[0], device=x1.device, dtype=x1.dtype)
         x_t, target_velocity = flow_sample(x1, t)
+        pred_velocity = self(qpos, images, x_t, t)
+        return masked_mse(pred_velocity, target_velocity, is_pad)
 
-        pred_velocity = model(qpos, images, x_t, t)
 
-        return F.mse_loss(pred_velocity, target_velocity)
+def masked_mse(prediction, target, is_pad=None):
+    """Average over valid action coordinates, excluding episode-end padding."""
+    if prediction.shape != target.shape:
+        raise ValueError("prediction and target shapes must match")
+    if is_pad is None:
+        return F.mse_loss(prediction, target)
+    if is_pad.shape != target.shape[:2] or is_pad.dtype != torch.bool:
+        raise ValueError("is_pad must be boolean with shape (B, chunk_size)")
+    if not (~is_pad).any(dim=1).all():
+        raise ValueError("Every sample must contain a valid action")
+    return F.mse_loss(prediction[~is_pad], target[~is_pad])
