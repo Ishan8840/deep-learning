@@ -189,7 +189,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--policy", choices=("dit", "act"), default="dit")
-    parser.add_argument("--act-dir", type=Path, default=Path(__file__).resolve().parent.parent / "01-action-chunking")
+    parser.add_argument("--act-dir", type=Path, default=Path(__file__).resolve().parent.parent / "01-act")
     parser.add_argument("--temporal-ensemble", action="store_true",
                         help="ACT only: combine overlapping chunks; requires --execute-steps 1")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/pusht-eval"))

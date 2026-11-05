@@ -1,20 +1,20 @@
 # Diffusion Policy
 
-[`model.py`](model.py) implements a transformer-based action denoiser conditioned on PushT observations. [`train.py`](train.py) trains it and [`eval.py`](eval.py) runs closed-loop rollouts. The [example rollout](success_rollout.mp4) shows one successful episode. See [DiT architecture notes](DiT.md) for the image-generation model that motivated the backbone.
+[`model.py`](model.py) implements a transformer-based action denoiser conditioned on PushT observations. [`train.py`](train.py) trains it and [`eval.py`](eval.py) runs closed-loop rollouts. The [example rollout](success_rollout.mp4) shows one successful episode. See [DiT architecture notes](../../02-generative-models/04-dit/README.md) for the image-generation model that motivated the backbone.
 
-Related note: [ALOHA Unleashed](ALOHA%20Unleashed.md) describes another diffusion-based robot policy. It is a paper note, not an implementation in this folder.
+Related note: [ALOHA Unleashed](../03-aloha-unleashed/README.md) describes another diffusion-based robot policy. It is a paper note, not an implementation in this folder.
 
 ## Core Ideas
 
 Represent a robot's **visuomotor policy as a conditional denoising diffusion process**.
 
-- Model **multimodal action distributions**, addressing the concern about distinct action trajectories discussed in [ACT](../01-action-chunking/README.md).
+- Model **multimodal action distributions**, addressing the concern about distinct action trajectories discussed in [ACT](../01-act/README.md).
 - Use action sequences in closed-loop control.
 - Predict actions conditioned on observations without also inferring future states, reducing computation and improving action accuracy.
 
 ## Adapting DDPM to Robot Actions
 
-[DDPM](../../02-generative-models/02-ddpm/README.md)s become diffusion policies through two changes:
+[DDPM](../../02-generative-models/03-ddpm/README.md)s become diffusion policies through two changes:
 
 1. The output represents **robot actions**.
 2. The denoising process is **conditioned on robot observations**.
@@ -71,7 +71,7 @@ This produces a noise prediction with the same shape as the action sequence.
 
 Temporal convolutions tend to favor low-frequency signals. This likely explains poorer performance when actions change sharply over time, as with velocity commands.
 
-## [Transformer](../../01-foundations/04-transformer/README.md) Architecture
+## [Transformer](../../01-foundations/06-transformer/README.md) Architecture
 
 The transformer decoder receives two input sequences:
 

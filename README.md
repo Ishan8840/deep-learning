@@ -1,6 +1,6 @@
 # From neural networks to robot policies
 
-A guided set of **all 26 of my Knowledge notes** and selected implementations tracing how neural networks learn representations, generate data, and choose actions. Start with the [neural network](01-foundations/01-neural-network/README.md), then the [CNN](01-foundations/02-cnn/README.md), [recurrent network](01-foundations/03-recurrent-networks/README.md), [Transformer](01-foundations/04-transformer/README.md), and [vision transformer](01-foundations/05-vision-transformer/README.md). The last chapter applies these ideas to action generation in the PushT simulator.
+A guided set of **all 26 of my Knowledge notes** and selected implementations tracing how neural networks learn representations, generate data, and choose actions. Start with the [neural network](01-foundations/01-neural-network/README.md), then the [CNN](01-foundations/03-cnn/README.md), [recurrent network](01-foundations/04-recurrent-networks/README.md), [Transformer](01-foundations/06-transformer/README.md), and [vision transformer](01-foundations/07-vision-transformer/README.md). The last chapter applies these ideas to action generation in the PushT simulator.
 
 ## The path
 
@@ -11,7 +11,7 @@ A guided set of **all 26 of my Knowledge notes** and selected implementations tr
 | [03 · Reinforcement learning](03-reinforcement-learning/README.md) | How do value estimates and policies improve through interaction? |
 | [04 · Robot policies](04-robot-policies/README.md) | How can models produce action sequences from images and state? |
 
-The robot chapter contains [ACT](04-robot-policies/01-action-chunking/README.md), a [diffusion policy](04-robot-policies/02-diffusion-policy/README.md), and a [flow-matching policy](04-robot-policies/03-flow-matching-policy/README.md). The [diffusion](04-robot-policies/02-diffusion-policy/success_rollout.mp4) and [flow-matching](04-robot-policies/03-flow-matching-policy/success.mp4) clips show individual PushT rollouts, not measured success rates.
+The robot chapter contains [ACT](04-robot-policies/01-act/README.md), a [diffusion policy](04-robot-policies/02-diffusion-policy/README.md), and a [flow-matching policy](04-robot-policies/06-flow-matching-policy/README.md). The [diffusion](04-robot-policies/02-diffusion-policy/success_rollout.mp4) and [flow-matching](04-robot-policies/06-flow-matching-policy/success.mp4) clips show individual PushT rollouts, not measured success rates.
 
 ## Run an example
 
@@ -20,13 +20,13 @@ Python 3.11+ and [`uv`](https://docs.astral.sh/uv/) are needed. From the reposit
 ```bash
 uv sync
 uv run python 01-foundations/01-neural-network/numpy_spiral.py --epochs 300
-uv run python 01-foundations/02-cnn/cnn.py --smoke-test --epochs 1
-uv run python 01-foundations/04-transformer/transformer.py --steps 20 --context 32 --layers 2
-uv run python 04-robot-policies/01-action-chunking/train.py --synthetic --epochs 1
+uv run python 01-foundations/03-cnn/cnn.py --smoke-test --epochs 1
+uv run python 01-foundations/06-transformer/transformer.py --steps 20 --context 32 --layers 2
+uv run python 04-robot-policies/01-act/train.py --synthetic --epochs 1
 ```
 
 The last two commands are pipeline checks on synthetic data. For the reinforcement-learning examples, install the optional environments with `uv sync --extra rl` and follow the commands in [chapter 03](03-reinforcement-learning/README.md). Full PushT training needs additional robotics packages and the public `lerobot/pusht` dataset; see [chapter 04](04-robot-policies/README.md).
 
 ## Scope
 
-These are learning implementations and notes, not exact paper reproductions or benchmark claims. The Knowledge notes are placed with their related topics; paper-only notes are labeled separately from implemented methods. Their GitHub copies have working links and a few clarity edits, while the original Knowledge files remain untouched. Model weights and datasets are excluded from Git; the checked-in images and videos are examples to inspect.
+These are learning implementations and notes, not exact paper reproductions or benchmark claims. Every Knowledge note has its own numbered topic page; implementations sit in the corresponding topic folders. Markdown keeps the prose, equations, and diagrams readable on GitHub. Notebooks can be added where an interactive experiment benefits from cells and outputs. The original Knowledge files remain untouched. Model weights and datasets are excluded from Git; the checked-in images and videos are examples to inspect.

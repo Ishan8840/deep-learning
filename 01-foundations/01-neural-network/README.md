@@ -10,4 +10,4 @@ uv run python 01-foundations/01-neural-network/numpy_spiral.py --epochs 300
 
 Adapted from my [neural-network-scratch](https://github.com/Ishan8840/neural-network-scratch) repo. The PyTorch Iris example and a separate FashionMNIST MLP were omitted because they repeated the same introductory network idea.
 
-Related note: [Loss Functions](Loss%20Functions.md) covers MSE, softmax cross-entropy, and KL divergence.
+Related note: [Loss Functions](../02-loss-functions/README.md) covers MSE, softmax cross-entropy, and KL divergence.
