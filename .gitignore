@@ -10,6 +10,7 @@ datasets/
 checkpoints/
 reconstructions/
 runs/
+outputs/
 wandb/
 logs/
 *.log
@@ -24,6 +25,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .cache/
+.local/
 .coverage
 .coverage.*
 htmlcov/
