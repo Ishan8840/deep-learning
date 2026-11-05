@@ -45,7 +45,7 @@ The resulting **$1202\times512$** sequence is passed to the transformer encoder.
 
 ### 2. Decode the actions
 
-The [transformer](../../01-foundations/03-vision-transformer/README.md) decoder takes $k$ positional query embeddings of dimension 512. Through **cross-attention**, these queries attend to the 1202 encoded observation tokens, which supply the keys and values.
+The [transformer](../../01-foundations/04-transformer/README.md) decoder takes $k$ positional query embeddings of dimension 512. Through **cross-attention**, these queries attend to the 1202 encoded observation tokens, which supply the keys and values.
 
 The decoder produces a $k\times512$ sequence. A final MLP maps it to **$k\times14$**: target joint positions for the next $k$ steps.
 

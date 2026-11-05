@@ -28,7 +28,7 @@ Vanilla RNNs have a problem on not being good at handling long term dependencies
 
 ### Continuation
 
-RNNs struggle to preserve information from distant timesteps because information and gradients must pass through many recurrent steps. LSTMs alleviate this with a gated cell state, but still process information sequentially. [Attention](../03-vision-transformer/README.md) allows direct connections between distant positions, making long-range dependencies easier to model.
+RNNs struggle to preserve information from distant timesteps because information and gradients must pass through many recurrent steps. LSTMs alleviate this with a gated cell state, but still process information sequentially. [Attention](../04-transformer/README.md) allows direct connections between distant positions, making long-range dependencies easier to model.
 
 
 ### Sources

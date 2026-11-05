@@ -1,6 +1,6 @@
 # DiT
 
-DiT replaces the U-Net backbone in latent diffusion with a [Transformer](../../01-foundations/03-vision-transformer/README.md), following the design practices of ViTs. Diffusion operates in a [VAE](../../02-generative-models/01-vae/README.md)'s latent space.
+DiT replaces the U-Net backbone in latent diffusion with a [Transformer](../../01-foundations/04-transformer/README.md), following the design practices of [ViTs](../../01-foundations/05-vision-transformer/README.md). Diffusion operates in a [VAE](../../02-generative-models/01-vae/README.md)'s latent space.
 
 ## Latent representation
 

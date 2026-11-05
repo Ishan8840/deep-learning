@@ -1,6 +1,6 @@
 # From neural networks to robot policies
 
-A guided set of notes and implementations tracing how neural networks learn representations, generate data, and choose actions. Each topic pairs an explanation with the smallest useful code example. The last chapter applies these ideas to action generation in the PushT simulator.
+A guided set of notes and implementations tracing how neural networks learn representations, generate data, and choose actions. Start with the [neural network](01-foundations/01-neural-network/README.md), then the [CNN](01-foundations/02-cnn/README.md), [recurrent network](01-foundations/03-recurrent-networks/README.md), [Transformer](01-foundations/04-transformer/README.md), and [vision transformer](01-foundations/05-vision-transformer/README.md). The last chapter applies these ideas to action generation in the PushT simulator.
 
 ## The path
 
@@ -19,8 +19,9 @@ Python 3.11+ and [`uv`](https://docs.astral.sh/uv/) are needed. From the reposit
 
 ```bash
 uv sync
-uv run python 01-foundations/01-backpropagation/numpy_spiral.py --epochs 300
-uv run python 01-foundations/03-vision-transformer/train.py --smoke-test --epochs 1
+uv run python 01-foundations/01-neural-network/numpy_spiral.py --epochs 300
+uv run python 01-foundations/02-cnn/cnn.py --smoke-test --epochs 1
+uv run python 01-foundations/04-transformer/transformer.py --steps 20 --context 32 --layers 2
 uv run python 04-robot-policies/01-action-chunking/train.py --synthetic --epochs 1
 ```
 

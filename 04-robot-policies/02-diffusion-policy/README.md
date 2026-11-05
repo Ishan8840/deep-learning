@@ -69,7 +69,7 @@ This produces a noise prediction with the same shape as the action sequence.
 
 Temporal convolutions tend to favor low-frequency signals. This likely explains poorer performance when actions change sharply over time, as with velocity commands.
 
-## [Transformer](../../01-foundations/03-vision-transformer/README.md) Architecture
+## [Transformer](../../01-foundations/04-transformer/README.md) Architecture
 
 The transformer decoder receives two input sequences:
 
