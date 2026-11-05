@@ -8,12 +8,12 @@ The robot experiments use **PushT**, a simulated 2D pushing task. These are lear
 
 | Idea | Implementation | Notes | What to look at |
 | --- | --- | --- | --- |
-| Attention and vision transformers | [Transformer](transformer/model.py) | [Transformer](notes/Transformer.md) | Patch tokens, multi-head attention, and a small CIFAR-10 training loop |
-| Latent generative models | [VAE](vae/autoencoder.py) | [VAE](notes/VAE.md) | [Latent interpolation](vae/latent_interpolation.png) and [latent space](vae/latent_space.png) |
-| Denoising diffusion | [DDPM](ddpm/ddpm.py) | [DDPM](notes/DDPM.md) | Forward noise process, denoising objective, and sampling |
-| Action chunking | [ACT](act/act.py) | [ACT](notes/ACT.md) | Predict a chunk of future actions from observations |
-| Diffusion for actions | [DiT-based policy](dit/model.py) | [DiT](notes/DiT.md), [Diffusion Policy](notes/Diffusion%20Policy.md) | [PushT rollout](dit/success_rollout.mp4) |
-| Flow matching for actions | [Flow model](flow%20matching/model.py) | [Flow Matching](notes/Flow%20Matching.md) | [Successful rollout](flow%20matching/success.mp4) and [failure rollout](flow%20matching/failure.mp4) |
+| Attention and vision transformers | [Transformer](transformer/model.py) | [Transformer](transformer/README.md) | Patch tokens, multi-head attention, and a small CIFAR-10 training loop |
+| Latent generative models | [VAE](vae/autoencoder.py) | [VAE](vae/README.md) | [Latent interpolation](vae/latent_interpolation.png) and [latent space](vae/latent_space.png) |
+| Denoising diffusion | [DDPM](ddpm/ddpm.py) | [DDPM](ddpm/README.md) | Forward noise process, denoising objective, and sampling |
+| Action chunking | [ACT](act/act.py) | [ACT](act/README.md) | Predict a chunk of future actions from observations |
+| Diffusion for actions | [DiT-based policy](dit/model.py) | [DiT](dit/README.md), [Diffusion Policy](dit/Diffusion%20Policy.md) | [PushT rollout](dit/success_rollout.mp4) |
+| Flow matching for actions | [Flow model](flow%20matching/model.py) | [Flow Matching](flow%20matching/README.md) | [Successful rollout](flow%20matching/success.mp4) and [failure rollout](flow%20matching/failure.mp4) |
 
 The notes explain the source papers and concepts. The code shows which parts I implemented. In particular, the DiT note covers the original image model, while `dit/` adapts transformer-based diffusion to robot action sequences. The ACT note describes the paper's architecture; `act/` is a compact implementation and its synthetic training example is a pipeline check, not a PushT result.
 
@@ -53,4 +53,4 @@ Training checkpoints and datasets are intentionally excluded from Git. The video
 
 ## Sources
 
-Each [note](notes) links to its original paper. The code and explanations here are my learning artifacts; credit for the underlying methods belongs to the paper authors.
+The notes beside each implementation link to the original papers. The code and explanations here are my learning artifacts; credit for the underlying methods belongs to the paper authors.

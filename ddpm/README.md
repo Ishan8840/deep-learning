@@ -285,7 +285,7 @@ A poor $\hat x_0$ at the last timestep does not, by itself, demonstrate a broken
 
 ## 8. Connection to variational inference
 
-Like a [VAE](VAE.md), a DDPM is a latent-variable model. Here the latent variables are the noisy image states $x_1,\ldots,x_T$, all with the same dimensionality as the data. The forward chain supplies a fixed approximate posterior rather than a learned encoder.
+Like a [VAE](../vae/README.md), a DDPM is a latent-variable model. Here the latent variables are the noisy image states $x_1,\ldots,x_T$, all with the same dimensionality as the data. The forward chain supplies a fixed approximate posterior rather than a learned encoder.
 
 The probability of a clean image integrates over all latent trajectories:
 
@@ -405,4 +405,4 @@ For a stronger comparison, evaluate checkpoints on the same held-out images with
 ## References
 
 - [Denoising Diffusion Probabilistic Models — Ho, Jain, and Abbeel (2020)](https://arxiv.org/abs/2006.11239)
-- Related notes: [VAE](VAE.md), CNN, Loss Functions
+- Related notes: [VAE](../vae/README.md), CNN, Loss Functions

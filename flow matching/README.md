@@ -1,6 +1,6 @@
 # Flow Matching
 
-Flow matching trains a model to regress onto a target vector field that generates a desired probability path. It can offer faster training, faster generation, and better performance than [DDPM](DDPM.md)-style models.
+Flow matching trains a model to regress onto a target vector field that generates a desired probability path. It can offer faster training, faster generation, and better performance than [DDPM](../ddpm/README.md)-style models.
 
 ## From noise to data
 

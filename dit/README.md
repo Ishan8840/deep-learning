@@ -1,6 +1,6 @@
 # DiT
 
-DiT replaces the U-Net backbone in latent diffusion with a [Transformer](Transformer.md), following the design practices of ViTs. Diffusion operates in a [VAE](VAE.md)'s latent space.
+DiT replaces the U-Net backbone in latent diffusion with a [Transformer](../transformer/README.md), following the design practices of ViTs. Diffusion operates in a [VAE](../vae/README.md)'s latent space.
 
 ## Latent representation
 
@@ -81,4 +81,4 @@ keeps a slowly moving average of the model's weights during training, which give
 ## Sources
 
 - [Scalable Diffusion Models with Transformers](https://arxiv.org/pdf/2212.09748)
-- [DDPM](DDPM.md)
+- [DDPM](../ddpm/README.md)

@@ -6,7 +6,7 @@ Small errors in predicted actions can compound into large errors over time.
 
 - **Action chunks:** Predict target joint positions for the next $k$ timesteps, reducing the effective task horizon by a factor of $k$.
 - **Temporal ensembling:** Query the policy more frequently and average overlapping action chunks.
-- **CVAE training:** Train the policy with a reconstruction loss and a term that regularizes the latent distribution toward a Gaussian prior just like [VAE](VAE.md)s.
+- **CVAE training:** Train the policy with a reconstruction loss and a term that regularizes the latent distribution toward a Gaussian prior just like [VAE](../vae/README.md)s.
 
 ## CVAE Encoder: Learning the Style Variable
 
@@ -37,7 +37,7 @@ The resulting **$1202\times512$** sequence is passed to the transformer encoder.
 
 ### 2. Decode the actions
 
-The [transformer](Transformer.md) decoder takes $k$ positional query embeddings of dimension 512. Through **cross-attention**, these queries attend to the 1202 encoded observation tokens, which supply the keys and values.
+The [transformer](../transformer/README.md) decoder takes $k$ positional query embeddings of dimension 512. Through **cross-attention**, these queries attend to the 1202 encoded observation tokens, which supply the keys and values.
 
 The decoder produces a $k\times512$ sequence. A final MLP maps it to **$k\times14$**: target joint positions for the next $k$ steps.
 
@@ -66,4 +66,4 @@ At test time, set $z$ to the mean of the prior: **zero**.
 ## Sources
 
 [Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware](https://arxiv.org/pdf/2304.13705)
-[VAE](VAE.md)
+[VAE](../vae/README.md)

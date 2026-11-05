@@ -4,13 +4,13 @@
 
 Represent a robot's **visuomotor policy as a conditional denoising diffusion process**.
 
-- Model **multimodal action distributions**, addressing the concern about distinct action trajectories discussed in [ACT](ACT.md).
+- Model **multimodal action distributions**, addressing the concern about distinct action trajectories discussed in [ACT](../act/README.md).
 - Use action sequences in closed-loop control.
 - Predict actions conditioned on observations without also inferring future states, reducing computation and improving action accuracy.
 
 ## Adapting DDPM to Robot Actions
 
-[DDPM](DDPM.md)s become diffusion policies through two changes:
+[DDPM](../ddpm/README.md)s become diffusion policies through two changes:
 
 1. The output represents **robot actions**.
 2. The denoising process is **conditioned on robot observations**.
@@ -67,7 +67,7 @@ This produces a noise prediction with the same shape as the action sequence.
 
 Temporal convolutions tend to favor low-frequency signals. This likely explains poorer performance when actions change sharply over time, as with velocity commands.
 
-## [Transformer](Transformer.md) Architecture
+## [Transformer](../transformer/README.md) Architecture
 
 The transformer decoder receives two input sequences:
 
