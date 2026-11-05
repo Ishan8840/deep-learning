@@ -28,3 +28,5 @@ uv run python 01-foundations/04-transformer/transformer.py --load --prompt "Hell
 The checkpoint defaults to `outputs/transformer.pt`, which Git ignores. A prompt can use only characters seen during training. The short demo confirms that the pipeline works; it is not a language-quality result.
 
 This version omits nanoGPT's KV cache and attention visualizer so the complete learning path stays in one readable file. Generation recomputes the current context for each new token.
+
+Related notes: [Transformer history](Transformer.md), [attention](Attention.md), [LoRA](LoRA.md), [Mixture of Experts](Mixture%20of%20Experts.md), and [Mixture of Transformers](Mixture%20of%20Transformers.md).

@@ -2,6 +2,8 @@
 
 [`model.py`](model.py) implements a transformer-based action denoiser conditioned on PushT observations. [`train.py`](train.py) trains it and [`eval.py`](eval.py) runs closed-loop rollouts. The [example rollout](success_rollout.mp4) shows one successful episode. See [DiT architecture notes](DiT.md) for the image-generation model that motivated the backbone.
 
+Related note: [ALOHA Unleashed](ALOHA%20Unleashed.md) describes another diffusion-based robot policy. It is a paper note, not an implementation in this folder.
+
 ## Core Ideas
 
 Represent a robot's **visuomotor policy as a conditional denoising diffusion process**.

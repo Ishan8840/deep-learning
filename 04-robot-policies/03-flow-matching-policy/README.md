@@ -2,6 +2,8 @@
 
 [`model.py`](model.py) adapts flow matching to action chunks conditioned on PushT images and state. [`train.py`](train.py) trains it and [`inference.py`](inference.py) evaluates closed-loop behavior. The [successful](success.mp4) and [failed](failure.mp4) rollouts are individual examples.
 
+Related paper notes: [VITA Flow Matching](VITA%20Flow%20Matching.md) and [A2A Flow Matching](A2A%20Flow%20Matching.md). These are not implementations in this folder.
+
 Flow matching trains a model to regress onto a target vector field that generates a desired probability path. It can offer faster training, faster generation, and better performance than [DDPM](../../02-generative-models/02-ddpm/README.md)-style models.
 
 ## From noise to data

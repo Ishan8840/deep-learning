@@ -2,6 +2,8 @@
 
 These examples are adapted from my `rl-basics` repo. They keep one implementation for each distinct idea:
 
+The [Markov Decision Process](Markov%20Decision%20Process.md) note defines the state, action, transition, reward, and discounting concepts used by these examples.
+
 | File | Idea |
 | --- | --- |
 | [`value_iteration.py`](value_iteration.py) | Dynamic programming when the transition and reward rules are known |

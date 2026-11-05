@@ -2,6 +2,8 @@
 
 [`autoencoder.py`](autoencoder.py) trains a VAE on MNIST. The checked-in [latent space](latent_space.png) and [interpolation](latent_interpolation.png) images show example outputs. The note below explains the probabilistic objective behind the code.
 
+See also the shorter [Autoencoder](Autoencoder.md) note for the deterministic starting point.
+
 > A VAE learns to generate data from latent variables. Its encoder maps an example to a distribution over latent vectors, and its decoder maps a sampled latent vector to a distribution over possible outputs.
 
 ## 1. Intuition: why latent variables?

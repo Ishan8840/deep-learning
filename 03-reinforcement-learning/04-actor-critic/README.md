@@ -9,3 +9,5 @@ uv run --extra rl python 03-reinforcement-learning/04-actor-critic/pendulum_td.p
 ```
 
 Evaluation runs without rendering unless `--render` is passed. This is an educational implementation; no benchmark result or trained weights are checked in.
+
+Related note: [Soft Actor-Critic](Soft%20Actor-Critic.md) extends the actor-critic idea with off-policy replay and an entropy objective. SAC is explained here, but not implemented in this folder.

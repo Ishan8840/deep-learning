@@ -1,6 +1,6 @@
 # From neural networks to robot policies
 
-A guided set of notes and implementations tracing how neural networks learn representations, generate data, and choose actions. Start with the [neural network](01-foundations/01-neural-network/README.md), then the [CNN](01-foundations/02-cnn/README.md), [recurrent network](01-foundations/03-recurrent-networks/README.md), [Transformer](01-foundations/04-transformer/README.md), and [vision transformer](01-foundations/05-vision-transformer/README.md). The last chapter applies these ideas to action generation in the PushT simulator.
+A guided set of **all 26 of my Knowledge notes** and selected implementations tracing how neural networks learn representations, generate data, and choose actions. Start with the [neural network](01-foundations/01-neural-network/README.md), then the [CNN](01-foundations/02-cnn/README.md), [recurrent network](01-foundations/03-recurrent-networks/README.md), [Transformer](01-foundations/04-transformer/README.md), and [vision transformer](01-foundations/05-vision-transformer/README.md). The last chapter applies these ideas to action generation in the PushT simulator.
 
 ## The path
 
@@ -29,4 +29,4 @@ The last two commands are pipeline checks on synthetic data. For the reinforceme
 
 ## Scope
 
-These are learning implementations and notes, not exact paper reproductions or benchmark claims. Notes link the original papers where applicable. Model weights and datasets are excluded from Git; the checked-in images and videos are examples to inspect.
+These are learning implementations and notes, not exact paper reproductions or benchmark claims. The Knowledge notes are placed with their related topics; paper-only notes are labeled separately from implemented methods. Their GitHub copies have working links and a few clarity edits, while the original Knowledge files remain untouched. Model weights and datasets are excluded from Git; the checked-in images and videos are examples to inspect.
