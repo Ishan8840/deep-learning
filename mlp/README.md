@@ -11,3 +11,13 @@ uv run python pt_nn.py
 ```
 
 The script downloads FashionMNIST if needed and opens a Matplotlib plot at the end.
+
+## NumPy network with manual gradients
+
+[`numpy_spiral.py`](numpy_spiral.py) is adapted from my [neural-network-scratch](https://github.com/Ishan8840/neural-network-scratch) repo. Unlike the FashionMNIST model above, it implements dense layers, ReLU, softmax cross-entropy, and the backward pass directly with NumPy. It generates its own three-class spiral dataset, so it has no extra dataset dependency.
+
+```bash
+uv run python mlp/numpy_spiral.py --epochs 1000
+```
+
+The central gradient is $\partial L/\partial z=(p-y)/N$ for softmax cross-entropy. Each dense layer propagates that gradient to its weights, bias, and inputs. The PyTorch Iris example from the source repo is omitted because it overlaps the FashionMNIST MLP already here.

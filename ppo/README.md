@@ -1,7 +1,13 @@
 
 **Proximal Policy Optimization (PPO)** is an on-policy actor–critic algorithm designed to improve a policy while discouraging overly aggressive updates. These notes focus on **PPO-Clip**, the version that uses a clipped surrogate objective.
 
-[`model.py`](model.py) is a continuous-action BipedalWalker experiment with a Gaussian actor, value critic, [GAE](GAE.md), and a flat-terrain-to-hardcore curriculum. It is an experiment script; the repository does not include measured evaluation results or a trained checkpoint.
+[`model.py`](model.py) adapts the PPO script from my `pendulum-V1` repo. It trains a continuous-action Gaussian actor and value critic on Pendulum-v1, using [GAE](GAE.md) and PPO clipping. It reports the environment's raw reward; it does not use the source script's reward shaping. The repository does not include a trained checkpoint or benchmark result.
+
+```bash
+uv run --extra rl python ppo/model.py --episodes 1000
+```
+
+Evaluation runs without a window by default; pass `--render` to watch it. The tanh action transform's constant scale factor is omitted from the stored log-probability because it cancels in the PPO probability ratio.
 
 ## PPO at a glance
 

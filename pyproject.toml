@@ -12,5 +12,8 @@ dependencies = [
     "torchvision>=0.28.0",
 ]
 
+[project.optional-dependencies]
+rl = ["gymnasium[classic-control]>=1.0,<2.0"]
+
 [[tool.uv.index]]
 url = "https://download.pytorch.org/whl/cpu"
