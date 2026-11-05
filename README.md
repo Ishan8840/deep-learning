@@ -1,32 +1,23 @@
-# From neural networks to robot policies
+# Deep learning implementations
 
-A guided set of **all 26 of my Knowledge notes** and selected implementations tracing how neural networks learn representations, generate data, and choose actions. Start with the [neural network](01-foundations/01-neural-network/README.md), then the [CNN](01-foundations/03-cnn/README.md), [recurrent network](01-foundations/04-recurrent-networks/README.md), [Transformer](01-foundations/06-transformer/README.md), and [vision transformer](01-foundations/07-vision-transformer/README.md). The last chapter applies these ideas to action generation in the PushT simulator.
+Readable implementations, from neural networks to robot policies. The explanations, paper notes, knowledge graph, and interactive visualizations live on the [Field Notes site](https://ishan8840.github.io/deep-learning-notes/).
 
-## The path
-
-| Chapter | What it answers |
+| Chapter | Implementations |
 | --- | --- |
-| [01 · Foundations](01-foundations/README.md) | How do gradients, memory, and attention let a model learn? |
-| [02 · Generative models](02-generative-models/README.md) | How do latent variables and denoising turn noise into structured data? |
-| [03 · Reinforcement learning](03-reinforcement-learning/README.md) | How do value estimates and policies improve through interaction? |
-| [04 · Robot policies](04-robot-policies/README.md) | How can models produce action sequences from images and state? |
+| [Foundations](01-foundations/README.md) | Neural network, CNN, RNN, Transformer, ViT |
+| [Generative models](02-generative-models/README.md) | VAE, DDPM |
+| [Reinforcement learning](03-reinforcement-learning/README.md) | Tabular methods, DQN, REINFORCE, actor-critic, PPO |
+| [Robot policies](04-robot-policies/README.md) | ACT, diffusion policy, flow-matching policy |
 
-The robot chapter contains [ACT](04-robot-policies/01-act/README.md), a [diffusion policy](04-robot-policies/02-diffusion-policy/README.md), and a [flow-matching policy](04-robot-policies/06-flow-matching-policy/README.md). The [diffusion](04-robot-policies/02-diffusion-policy/success_rollout.mp4) and [flow-matching](04-robot-policies/06-flow-matching-policy/success.mp4) clips show individual PushT rollouts, not measured success rates.
+## Run
 
-## Run an example
-
-Python 3.11+ and [`uv`](https://docs.astral.sh/uv/) are needed. From the repository root:
+Python 3.11+ and [uv](https://docs.astral.sh/uv/) are required. Run commands from the repository root.
 
 ```bash
 uv sync
 uv run python 01-foundations/01-neural-network/numpy_spiral.py --epochs 300
-uv run python 01-foundations/03-cnn/cnn.py --smoke-test --epochs 1
-uv run python 01-foundations/06-transformer/transformer.py --steps 20 --context 32 --layers 2
-uv run python 04-robot-policies/01-act/train.py --synthetic --epochs 1
+uv run python 01-foundations/02-cnn/cnn.py --smoke-test --epochs 1
+uv run python 01-foundations/04-transformer/transformer.py --steps 20 --context 32 --layers 2
 ```
 
-The last two commands are pipeline checks on synthetic data. For the reinforcement-learning examples, install the optional environments with `uv sync --extra rl` and follow the commands in [chapter 03](03-reinforcement-learning/README.md). Full PushT training needs additional robotics packages and the public `lerobot/pusht` dataset; see [chapter 04](04-robot-policies/README.md).
-
-## Scope
-
-These are learning implementations and notes, not exact paper reproductions or benchmark claims. Every Knowledge note has its own numbered topic page; implementations sit in the corresponding topic folders. Markdown keeps the prose, equations, and diagrams readable on GitHub. Notebooks can be added where an interactive experiment benefits from cells and outputs. The original Knowledge files remain untouched. Model weights and datasets are excluded from Git; the checked-in images and videos are examples to inspect.
+Use `uv sync --extra rl` for reinforcement-learning environments. Full robot-policy training needs additional robotics packages and the public `lerobot/pusht` dataset. Short synthetic runs verify code paths; checked-in rollouts are individual examples. Datasets and model weights are excluded from Git.
